@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from './supabase';
+import { supabase, checkSupabaseConfig } from './supabase';
 import { checkNfcSupport, scanNfcTag } from './nfcService';
 import { Layout } from './components/Layout';
 import { StatusBadge } from './components/StatusBadge';
@@ -21,7 +21,15 @@ const App: React.FC = () => {
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
-    // Check NFC compatibility on mount
+    // 1. Check Supabase Configuration
+    const configCheck = checkSupabaseConfig();
+    if (!configCheck.valid) {
+      setErrorMsg(configCheck.message || "Database configuration error");
+      setStep(AppStep.ERROR);
+      return;
+    }
+
+    // 2. Check NFC compatibility
     if (!checkNfcSupport()) {
       setErrorMsg("Web NFC is not supported on this browser. Use Chrome on Android.");
     }
@@ -88,13 +96,10 @@ const App: React.FC = () => {
         .maybeSingle();
 
       if (error) {
-        throw new Error(`Database Error: ${error.message}`);
+        throw error;
       }
 
       if (!data) {
-        // If data is null but no error, it usually means 1 of 2 things:
-        // 1. The ID isn't in the DB.
-        // 2. RLS (Row Level Security) is on, and no policy allows 'SELECT'.
         throw new Error(`Teacher ID not recognized. Scanned: ${nfcUid}. (Hint: Check DB Table or RLS Policies)`);
       }
 
@@ -102,7 +107,7 @@ const App: React.FC = () => {
       setStep(AppStep.SCAN_STUDENT);
       stopNfcScan(); // Stop login scan
     } catch (err: any) {
-      setErrorMsg(err.message);
+      handleError(err);
     }
   };
 
@@ -120,9 +125,7 @@ const App: React.FC = () => {
         .or(`nfc_uid.ilike.${nfcUid},student_id_number.ilike.${nfcUid}`)
         .maybeSingle();
 
-      if (studentError) {
-        throw new Error(`DB Error: ${studentError.message}`);
-      }
+      if (studentError) throw studentError;
 
       if (!student) {
         throw new Error(`Student tag not recognized. Scanned: ${nfcUid}`);
@@ -139,9 +142,7 @@ const App: React.FC = () => {
         .limit(1)
         .maybeSingle();
 
-      if (apptError) {
-        throw new Error(`Appointment Lookup Error: ${apptError.message}`);
-      }
+      if (apptError) throw apptError;
 
       if (!appt) {
         throw new Error(`No PENDING appointment found for ${student.name}.`);
@@ -167,8 +168,7 @@ const App: React.FC = () => {
       subscribeToAppointment(appt.id);
 
     } catch (err: any) {
-      setErrorMsg(err.message);
-      setStep(AppStep.ERROR);
+      handleError(err);
     }
   };
 
@@ -213,6 +213,19 @@ const App: React.FC = () => {
     setErrorMsg(null);
     setStep(AppStep.SCAN_STUDENT);
     unsubscribeRealtime();
+  };
+
+  const handleError = (err: any) => {
+    console.error("App Error:", err);
+    let message = err.message || "Unknown Error";
+    
+    // Check for common connection issues
+    if (message.includes("Failed to fetch")) {
+      message = "Connection Failed. Check internet connection and ensure Supabase URL in 'supabase.ts' is correct.";
+    }
+
+    setErrorMsg(message);
+    setStep(AppStep.ERROR);
   };
 
   // --- Render Helpers ---
