@@ -30,7 +30,8 @@ export enum AppStep {
   PROCESSING = 'PROCESSING', // Looking up student/appt
   WAITING_APPROVAL = 'WAITING_APPROVAL', // Notification sent, waiting for Counselor
   RESULT = 'RESULT', // Final result shown
-  ERROR = 'ERROR'
+  ERROR = 'ERROR',
+  NO_APPOINTMENT = 'NO_APPOINTMENT' // New step for "No authorization required"
 }
 
 export interface VerificationResult {

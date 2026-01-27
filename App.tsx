@@ -6,7 +6,7 @@ import { StatusBadge } from './components/StatusBadge';
 import { AppStep, Appointment, Student, Teacher } from './types';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
-const App: React.FC = () => {
+export const App: React.FC = () => {
   // State Machine
   const [step, setStep] = useState<AppStep>(AppStep.LOGIN);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -133,11 +133,20 @@ const App: React.FC = () => {
     try {
       console.log(`Verifying Student with UID: ${nfcUid}`);
 
-      const { data: student, error: studentError } = await supabase
-        .from('students')
-        .select('*')
-        .or(`nfc_uid.ilike.${nfcUid},student_id_number.ilike.${nfcUid}`)
-        .maybeSingle();
+      // IMPROVED LOOKUP LOGIC:
+      // If the scanned value contains a colon (e.g. 04:73:...), it is likely a Hardware UID.
+      // We search ONLY the nfc_uid column in this case to avoid syntax errors with .or().
+      // If no colon, it might be a Student ID number (text), so we check both.
+      
+      let query = supabase.from('students').select('*');
+      
+      if (nfcUid.includes(':')) {
+         query = query.ilike('nfc_uid', nfcUid);
+      } else {
+         query = query.or(`nfc_uid.ilike."${nfcUid}",student_id_number.ilike."${nfcUid}"`);
+      }
+
+      const { data: student, error: studentError } = await query.maybeSingle();
 
       if (studentError) throw studentError;
 
@@ -146,6 +155,7 @@ const App: React.FC = () => {
       }
       setScannedStudent(student);
 
+      // Check for EXISTING appointment only. NEVER create one.
       const { data: appt, error: apptError } = await supabase
         .from('appointments')
         .select('*')
@@ -157,10 +167,13 @@ const App: React.FC = () => {
 
       if (apptError) throw apptError;
 
+      // Logic Branch: NO appointment found
       if (!appt) {
-        throw new Error(`No PENDING appointment found for ${student.name}.`);
+        setStep(AppStep.NO_APPOINTMENT);
+        return; // STOP processing. Do not send notification.
       }
 
+      // Logic Branch: Appointment found -> Notify Counselor
       setActiveAppointment(appt);
 
       const { error: notifError } = await supabase
@@ -299,6 +312,32 @@ const App: React.FC = () => {
           </div>
         );
 
+      case AppStep.NO_APPOINTMENT:
+        return (
+          <div className="flex flex-col items-center text-center space-y-6">
+             <div className="w-24 h-24 rounded-full bg-slate-100 flex items-center justify-center border-4 border-slate-200 mb-2">
+                <svg className="w-12 h-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+             </div>
+            <div className="w-full bg-white p-6 rounded-2xl shadow-lg border border-purple-50">
+               <h3 className="text-xl font-bold text-slate-900 mb-1">{scannedStudent?.name}</h3>
+               <p className="text-slate-500 mb-6">{scannedStudent?.section}</p>
+               
+               <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <p className="text-slate-800 font-bold text-lg">No appointment found.</p>
+                  <p className="text-slate-500 text-sm mt-1">No authorization required.</p>
+               </div>
+            </div>
+             <button 
+              onClick={resetFlow}
+              className="w-full py-4 text-purple-600 font-semibold hover:bg-purple-50 rounded-xl transition-colors"
+            >
+              Verify Next Student
+            </button>
+          </div>
+        );
+
       case AppStep.WAITING_APPROVAL:
         return (
           <div className="w-full bg-white p-6 rounded-2xl shadow-xl border border-purple-50 text-center space-y-6">
@@ -386,5 +425,3 @@ const App: React.FC = () => {
     </Layout>
   );
 };
-
-export default App;

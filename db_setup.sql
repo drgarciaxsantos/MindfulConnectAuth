@@ -13,13 +13,9 @@ CREATE TABLE IF NOT EXISTS public.teachers (
 ALTER TABLE public.teachers ADD COLUMN IF NOT EXISTS nfc_uid text UNIQUE;
 
 -- 2. Clean up conflicts and Insert specific Teacher ID
--- Step A: Delete any existing row that already claims this NFC ID to prevent "duplicate key" error
 DELETE FROM public.teachers WHERE nfc_uid = '04:84:c8:d1:2e:61:80';
-
--- Step B: Delete any existing 'Authorized Gatekeeper' to avoid duplicate names with different IDs
 DELETE FROM public.teachers WHERE name = 'Authorized Gatekeeper';
 
--- Step C: Insert the correct record fresh
 INSERT INTO public.teachers (name, nfc_uid)
 VALUES ('Authorized Gatekeeper', '04:84:c8:d1:2e:61:80');
 
@@ -93,17 +89,23 @@ CREATE TABLE IF NOT EXISTS public.availability (
 );
 
 -- 9. Insert Data
-INSERT INTO public.students (student_id_number, password, name, section, parent_phone_number)
+-- Clean up any existing claiming of this tag to prevent conflicts
+UPDATE public.students SET nfc_uid = NULL WHERE nfc_uid = '04:73:29:D2:2E:61:80';
+
+INSERT INTO public.students (student_id_number, password, name, section, parent_phone_number, nfc_uid)
 VALUES 
-  ('02000385842', 'password', 'Ashly Misha C. Espina', 'MAWD-202', '0917-123-4567'),
-  ('02000123456', 'password', 'Will Byers', 'STEM-101', '0917-987-6543'),
-  ('02000246810', 'password', 'Viktor Hargreeves', 'MAWD-202', '0977-777-7777'),
-  ('02000131313', 'password', 'Banana Joe', 'STEM-103', '0913-131-3131'),
-  ('02000654321', 'password', 'Harleen Quinzel', 'HUMSS-205', '0945-678,9101'),
-  ('02000111111', 'password', 'Pamela Isley', 'ABM-204', '0924-681-1012'),
-  ('02000222222', 'password', 'Caitlyn Kirraman', 'MAWD-202', '0942-863-4851'),
-  ('02000333333', 'password', 'Sheldon Cooper', 'STEM-101', '0956-246-9563')
-ON CONFLICT (student_id_number) DO NOTHING;
+  ('02000385842', 'password', 'Ashly Misha C. Espina', 'MAWD-202', '0917-123-4567', '04:73:29:D2:2E:61:80'),
+  ('02000123456', 'password', 'Will Byers', 'STEM-101', '0917-987-6543', NULL),
+  ('02000246810', 'password', 'Viktor Hargreeves', 'MAWD-202', '0977-777-7777', NULL),
+  ('02000131313', 'password', 'Banana Joe', 'STEM-103', '0913-131-3131', NULL),
+  ('02000654321', 'password', 'Harleen Quinzel', 'HUMSS-205', '0945-678,9101', NULL),
+  ('02000111111', 'password', 'Pamela Isley', 'ABM-204', '0924-681-1012', NULL),
+  ('02000222222', 'password', 'Caitlyn Kirraman', 'MAWD-202', '0942-863-4851', NULL),
+  ('02000333333', 'password', 'Sheldon Cooper', 'STEM-101', '0956-246-9563', NULL)
+ON CONFLICT (student_id_number) 
+DO UPDATE SET 
+  nfc_uid = EXCLUDED.nfc_uid,
+  name = EXCLUDED.name;
 
 INSERT INTO public.counselors (name, email)
 VALUES 
@@ -111,3 +113,24 @@ VALUES
   ('Ms. Mary Jane M. Lalamunan', 'tlga.ashlyespina@gmail.com'),
   ('Ms. Elizabeth T. Cape', 'spnashly@gmail.com')
 ON CONFLICT (email) DO NOTHING;
+
+-- 11. GENERATE TEST APPOINTMENT
+INSERT INTO public.appointments (
+  student_id, student_id_number, student_name, section, 
+  counselor_id, counselor_name, 
+  date, time, reason, status
+)
+SELECT 
+  s.id, s.student_id_number, s.name, s.section,
+  c.id, c.name,
+  to_char(now(), 'YYYY-MM-DD'),
+  to_char(now(), 'HH12:MI AM'),
+  'NFC Gate Verification Test',
+  'PENDING'
+FROM public.students s, public.counselors c
+WHERE s.student_id_number = '02000385842'
+AND c.email = 'wackylooky@gmail.com'
+AND NOT EXISTS (
+    SELECT 1 FROM public.appointments a 
+    WHERE a.student_id = s.id AND a.status = 'PENDING'
+);
