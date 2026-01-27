@@ -115,7 +115,7 @@ export const App: React.FC = () => {
       if (error) throw error;
 
       if (!data) {
-        throw new Error(`Teacher ID not recognized. Scanned: ${nfcUid}. (Check DB 'teachers' table)`);
+        throw new Error("Unauthorized Tag");
       }
 
       setTeacher(data);
@@ -147,7 +147,7 @@ export const App: React.FC = () => {
       if (studentError) throw studentError;
 
       if (!student) {
-        throw new Error(`Student tag not recognized. Scanned: ${nfcUid}`);
+        throw new Error("Unauthorized Tag");
       }
       setScannedStudent(student);
 
