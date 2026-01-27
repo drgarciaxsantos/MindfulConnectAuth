@@ -152,12 +152,12 @@ export const App: React.FC = () => {
       setScannedStudent(student);
 
       // 2. Check for CONFIRMED (ACCEPTED) appointments.
-      // Logic: "authenticator must verify confirmed appointments not pending"
+      // We also check for 'VERIFYING' in case the scan was interrupted previously or is in progress.
       const { data: appt, error: apptError } = await supabase
         .from('appointments')
         .select('*')
         .eq('student_id', student.id)
-        .eq('status', 'ACCEPTED') // Changed from PENDING to ACCEPTED
+        .in('status', ['ACCEPTED', 'VERIFYING']) 
         .order('date', { ascending: false }) 
         .limit(1)
         .maybeSingle();
@@ -166,23 +166,27 @@ export const App: React.FC = () => {
 
       // Logic Branch: NO confirmed appointment found (might be Pending, Denied, or None)
       if (!appt) {
+        console.log("No ACCEPTED or VERIFYING appointment found for student:", student.id);
         setStep(AppStep.NO_APPOINTMENT);
         return; 
       }
 
-      // Logic Branch: Confirmed Appointment found -> Start Verification Request
-      // We momentarily change status to 'VERIFYING' to signal the Dashboard that a gate check is active.
+      // Logic Branch: Confirmed Appointment found -> Start/Resume Verification Request
       
-      const { error: updateError } = await supabase
-        .from('appointments')
-        .update({ status: 'VERIFYING' })
-        .eq('id', appt.id);
-        
-      if (updateError) throw updateError;
-      
-      setActiveAppointment({ ...appt, status: 'VERIFYING' });
+      // If it's already verifying, we don't need to update status, just notify/listen
+      if (appt.status === 'ACCEPTED') {
+        const { error: updateError } = await supabase
+          .from('appointments')
+          .update({ status: 'VERIFYING' })
+          .eq('id', appt.id);
+          
+        if (updateError) throw updateError;
+        appt.status = 'VERIFYING'; // Update local state
+      }
 
-      // Notify Counselor
+      setActiveAppointment(appt);
+
+      // Notify Counselor (Send 'GATE REQUEST' regardless if it's new or a re-scan)
       const { error: notifError } = await supabase
         .from('notifications')
         .insert({
@@ -218,6 +222,10 @@ export const App: React.FC = () => {
         (payload) => {
           const newStatus = payload.new.status;
           // The counselor will set it back to ACCEPTED (Approved) or DENIED
+          // Note: If they approve, it goes back to 'ACCEPTED'. 
+          // We need to differentiate "Initial Accepted" vs "Gate Approved Accepted"? 
+          // Actually, if it goes to ACCEPTED from VERIFYING, that means "Let them in".
+          
           if (newStatus === 'ACCEPTED' || newStatus === 'DENIED') {
             setActiveAppointment(payload.new as Appointment);
             setStep(AppStep.RESULT);
