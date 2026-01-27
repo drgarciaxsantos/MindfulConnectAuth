@@ -31,7 +31,34 @@ export const scanNfcTag = async (
         for (const record of event.message.records) {
           if (record.recordType === "text") {
             const textDecoder = new TextDecoder(record.encoding);
-            payload = textDecoder.decode(record.data);
+            
+            // NDEF Text Record Layout:
+            // Byte 0: Status byte (Bit 7: Encoding 0=UTF8, Bit 5-0: Lang code length)
+            // Byte 1 to (1 + len): Language Code (e.g. "en")
+            // Remaining: Actual Text
+            
+            if (record.data && record.data.byteLength > 0) {
+              try {
+                const statusByte = record.data.getUint8(0);
+                const langCodeLength = statusByte & 0x3F; // Mask to get last 6 bits
+                const textStart = 1 + langCodeLength;
+                
+                // Create a view of the actual text data, skipping header
+                const textData = new DataView(
+                  record.data.buffer, 
+                  record.data.byteOffset + textStart, 
+                  record.data.byteLength - textStart
+                );
+                
+                payload = textDecoder.decode(textData);
+              } catch (e) {
+                // Fallback for non-standard text records
+                console.warn("NFC Text Decode Error, falling back to raw decode", e);
+                payload = textDecoder.decode(record.data);
+              }
+            } else {
+               payload = textDecoder.decode(record.data);
+            }
           }
         }
       }

@@ -13,7 +13,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, title, teacherName, on
       <header className="w-full bg-white shadow-sm border-b border-purple-100 p-4 sticky top-0 z-10">
         <div className="max-w-md mx-auto flex justify-between items-center">
           <h1 className="text-xl font-bold text-purple-900 tracking-tight">
-            Gate<span className="text-purple-600">Keeper</span>
+            Mindful<span className="text-purple-600">Connect</span>
           </h1>
           {teacherName && (
             <div className="flex items-center gap-2">
