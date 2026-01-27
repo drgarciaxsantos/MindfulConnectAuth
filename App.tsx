@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase, checkSupabaseConfig } from './supabase';
+import { supabase, checkSupabaseConfig, testConnection } from './supabase';
 import { checkNfcSupport, scanNfcTag } from './nfcService';
 import { Layout } from './components/Layout';
 import { StatusBadge } from './components/StatusBadge';
@@ -10,6 +10,7 @@ const App: React.FC = () => {
   // State Machine
   const [step, setStep] = useState<AppStep>(AppStep.LOGIN);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(true);
   
   // Data State
   const [teacher, setTeacher] = useState<Teacher | null>(null);
@@ -21,24 +22,44 @@ const App: React.FC = () => {
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
-    // 1. Check Supabase Configuration
-    const configCheck = checkSupabaseConfig();
-    if (!configCheck.valid) {
-      setErrorMsg(configCheck.message || "Database configuration error");
-      setStep(AppStep.ERROR);
-      return;
-    }
-
-    // 2. Check NFC compatibility
-    if (!checkNfcSupport()) {
-      setErrorMsg("Web NFC is not supported on this browser. Use Chrome on Android.");
-    }
-
+    initApp();
     return () => {
       stopNfcScan();
       unsubscribeRealtime();
     };
   }, []);
+
+  const initApp = async () => {
+    setIsConnecting(true);
+    setErrorMsg(null);
+
+    // 1. Check Config String Validity
+    const configCheck = checkSupabaseConfig();
+    if (!configCheck.valid) {
+      setErrorMsg(configCheck.message || "Database configuration error");
+      setStep(AppStep.ERROR);
+      setIsConnecting(false);
+      return;
+    }
+
+    // 2. Test Actual Connectivity
+    // This catches "Failed to fetch" before the user even tries to scan.
+    const conn = await testConnection();
+    if (!conn.success) {
+      setErrorMsg(`Connection Error: ${conn.message}. (Ensure you are online and API Key is correct)`);
+      setStep(AppStep.ERROR);
+      setIsConnecting(false);
+      return;
+    }
+
+    // 3. Check NFC compatibility
+    if (!checkNfcSupport()) {
+      setErrorMsg("Web NFC is not supported on this browser. Use Chrome on Android.");
+      // We don't block usage, just warn
+    }
+
+    setIsConnecting(false);
+  };
 
   // --- NFC Handlers ---
 
@@ -61,12 +82,9 @@ const App: React.FC = () => {
   };
 
   const handleNfcRead = async (mode: 'TEACHER' | 'STUDENT', serial: string, payload: string) => {
-    // Strategy: Prefer Payload if available, fallback to Serial.
-    // Clean inputs: Remove null bytes and whitespace which commonly cause DB lookup failures.
     const cleanPayload = payload ? payload.replace(/\u0000/g, '').trim() : '';
     const cleanSerial = serial ? serial.trim() : '';
     
-    // Normalize: Use the payload if it exists, otherwise serial. Lowercase it for consistent DB matching.
     const rawValue = cleanPayload || cleanSerial;
     const nfcValue = rawValue.toLowerCase();
 
@@ -88,37 +106,33 @@ const App: React.FC = () => {
     try {
       console.log(`Authenticating Teacher with UID: ${nfcUid}`);
       
-      // Use .ilike() for case-insensitive match and .maybeSingle() to handle 0 results gracefully
       const { data, error } = await supabase
         .from('teachers')
         .select('*')
         .ilike('nfc_uid', nfcUid) 
         .maybeSingle();
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       if (!data) {
-        throw new Error(`Teacher ID not recognized. Scanned: ${nfcUid}. (Hint: Check DB Table or RLS Policies)`);
+        throw new Error(`Teacher ID not recognized. Scanned: ${nfcUid}. (Check DB 'teachers' table)`);
       }
 
       setTeacher(data);
       setStep(AppStep.SCAN_STUDENT);
-      stopNfcScan(); // Stop login scan
+      stopNfcScan(); 
     } catch (err: any) {
       handleError(err);
     }
   };
 
   const verifyStudent = async (nfcUid: string) => {
-    stopNfcScan(); // Stop scanning once we get a hit
+    stopNfcScan(); 
     setStep(AppStep.PROCESSING);
 
     try {
       console.log(`Verifying Student with UID: ${nfcUid}`);
 
-      // 1. Find Student (Check both nfc_uid and student_id_number using ilike)
       const { data: student, error: studentError } = await supabase
         .from('students')
         .select('*')
@@ -132,13 +146,12 @@ const App: React.FC = () => {
       }
       setScannedStudent(student);
 
-      // 2. Find PENDING Appointment for today
       const { data: appt, error: apptError } = await supabase
         .from('appointments')
         .select('*')
         .eq('student_id', student.id)
         .eq('status', 'PENDING')
-        .order('date', { ascending: false }) // Get latest
+        .order('date', { ascending: false }) 
         .limit(1)
         .maybeSingle();
 
@@ -150,7 +163,6 @@ const App: React.FC = () => {
 
       setActiveAppointment(appt);
 
-      // 3. Notify Counselor
       const { error: notifError } = await supabase
         .from('notifications')
         .insert({
@@ -159,11 +171,8 @@ const App: React.FC = () => {
           is_read: false
         });
 
-      if (notifError) {
-        console.error("Notification failed", notifError);
-      }
+      if (notifError) console.error("Notification failed", notifError);
 
-      // 4. Listen for Decision
       setStep(AppStep.WAITING_APPROVAL);
       subscribeToAppointment(appt.id);
 
@@ -219,9 +228,8 @@ const App: React.FC = () => {
     console.error("App Error:", err);
     let message = err.message || "Unknown Error";
     
-    // Check for common connection issues
     if (message.includes("Failed to fetch")) {
-      message = "Connection Failed. Check internet connection and ensure Supabase URL in 'supabase.ts' is correct.";
+      message = "Network Error: Cannot reach database. Check internet connection.";
     }
 
     setErrorMsg(message);
@@ -231,12 +239,20 @@ const App: React.FC = () => {
   // --- Render Helpers ---
 
   const renderContent = () => {
+    if (isConnecting) {
+      return (
+        <div className="flex flex-col items-center space-y-4 pt-10">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+          <p className="text-slate-500 text-sm">Connecting to system...</p>
+        </div>
+      );
+    }
+
     switch (step) {
       case AppStep.LOGIN:
         return (
           <div className="flex flex-col items-center space-y-8 animate-fade-in">
             <div className="w-48 h-48 rounded-full bg-purple-100 flex items-center justify-center animate-pulse border-4 border-purple-200">
-               {/* Just NFC Icon */}
               <svg className="w-24 h-24 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M12 12a1 1 0 100-2 1 1 0 000 2z" />
               </svg>
@@ -337,14 +353,22 @@ const App: React.FC = () => {
         return (
           <div className="bg-red-50 w-full p-6 rounded-2xl border border-red-100 text-center">
             <div className="text-red-500 text-5xl mb-4">!</div>
-            <h3 className="text-red-800 font-bold text-lg mb-2">Verification Failed</h3>
+            <h3 className="text-red-800 font-bold text-lg mb-2">Connection Error</h3>
             <p className="text-red-600 mb-6 font-mono text-sm break-all">{errorMsg}</p>
-            <button 
-              onClick={resetFlow}
-              className="bg-white text-red-600 border border-red-200 px-6 py-2 rounded-lg font-medium hover:bg-red-50"
-            >
-              Try Again
-            </button>
+            <div className="flex flex-col gap-2">
+              <button 
+                onClick={() => window.location.reload()}
+                className="bg-purple-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-purple-700"
+              >
+                Reload App
+              </button>
+              <button 
+                onClick={() => { setStep(AppStep.LOGIN); setErrorMsg(null); }}
+                className="text-slate-500 text-sm hover:underline"
+              >
+                Back to Login
+              </button>
+            </div>
           </div>
         );
     }
@@ -358,13 +382,6 @@ const App: React.FC = () => {
     >
       <div className="w-full transition-all duration-300">
         {renderContent()}
-        
-        {/* Global Error Toast if not in Error State */}
-        {errorMsg && step !== AppStep.ERROR && (
-          <div className="fixed bottom-4 left-4 right-4 bg-red-600 text-white p-4 rounded-lg shadow-lg text-sm text-center">
-            {errorMsg}
-          </div>
-        )}
       </div>
     </Layout>
   );
