@@ -133,11 +133,7 @@ export const App: React.FC = () => {
     try {
       console.log(`Verifying Student with UID: ${nfcUid}`);
 
-      // IMPROVED LOOKUP LOGIC:
-      // If the scanned value contains a colon (e.g. 04:73:...), it is likely a Hardware UID.
-      // We search ONLY the nfc_uid column in this case to avoid syntax errors with .or().
-      // If no colon, it might be a Student ID number (text), so we check both.
-      
+      // 1. Find the Student
       let query = supabase.from('students').select('*');
       
       if (nfcUid.includes(':')) {
@@ -155,32 +151,43 @@ export const App: React.FC = () => {
       }
       setScannedStudent(student);
 
-      // Check for EXISTING appointment only. NEVER create one.
+      // 2. Check for CONFIRMED (ACCEPTED) appointments.
+      // Logic: "authenticator must verify confirmed appointments not pending"
       const { data: appt, error: apptError } = await supabase
         .from('appointments')
         .select('*')
         .eq('student_id', student.id)
-        .eq('status', 'PENDING')
+        .eq('status', 'ACCEPTED') // Changed from PENDING to ACCEPTED
         .order('date', { ascending: false }) 
         .limit(1)
         .maybeSingle();
 
       if (apptError) throw apptError;
 
-      // Logic Branch: NO appointment found
+      // Logic Branch: NO confirmed appointment found (might be Pending, Denied, or None)
       if (!appt) {
         setStep(AppStep.NO_APPOINTMENT);
-        return; // STOP processing. Do not send notification.
+        return; 
       }
 
-      // Logic Branch: Appointment found -> Notify Counselor
-      setActiveAppointment(appt);
+      // Logic Branch: Confirmed Appointment found -> Start Verification Request
+      // We momentarily change status to 'VERIFYING' to signal the Dashboard that a gate check is active.
+      
+      const { error: updateError } = await supabase
+        .from('appointments')
+        .update({ status: 'VERIFYING' })
+        .eq('id', appt.id);
+        
+      if (updateError) throw updateError;
+      
+      setActiveAppointment({ ...appt, status: 'VERIFYING' });
 
+      // Notify Counselor
       const { error: notifError } = await supabase
         .from('notifications')
         .insert({
           user_id: appt.counselor_id,
-          message: `VERIFICATION REQUEST: ${student.name} (${student.section}) is at the gate for appointment at ${appt.time}.`,
+          message: `GATE REQUEST: ${student.name} is at the gate. Please confirm entry.`,
           is_read: false
         });
 
@@ -210,6 +217,7 @@ export const App: React.FC = () => {
         },
         (payload) => {
           const newStatus = payload.new.status;
+          // The counselor will set it back to ACCEPTED (Approved) or DENIED
           if (newStatus === 'ACCEPTED' || newStatus === 'DENIED') {
             setActiveAppointment(payload.new as Appointment);
             setStep(AppStep.RESULT);
@@ -325,8 +333,8 @@ export const App: React.FC = () => {
                <p className="text-slate-500 mb-6">{scannedStudent?.section}</p>
                
                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  <p className="text-slate-800 font-bold text-lg">No appointment found.</p>
-                  <p className="text-slate-500 text-sm mt-1">No authorization required.</p>
+                  <p className="text-slate-800 font-bold text-lg">No confirmed appointment.</p>
+                  <p className="text-slate-500 text-sm mt-1">No authorization available.</p>
                </div>
             </div>
              <button 
@@ -351,8 +359,8 @@ export const App: React.FC = () => {
               <h3 className="text-xl font-bold text-slate-800 mb-1">{scannedStudent?.name}</h3>
               <p className="text-slate-500 text-sm mb-4">{scannedStudent?.section}</p>
               <div className="bg-yellow-50 p-4 rounded-lg">
-                <p className="text-yellow-800 text-sm font-medium">Waiting for Counselor Approval</p>
-                <p className="text-yellow-600 text-xs mt-1">Notification sent. Do not close.</p>
+                <p className="text-yellow-800 text-sm font-medium">Verifying with Counselor...</p>
+                <p className="text-yellow-600 text-xs mt-1">Notification sent. Waiting for response.</p>
               </div>
             </div>
           </div>

@@ -1,5 +1,5 @@
 {
-  "name": "MindfulConnect",
+  "name": "MindfulConnectAuth",
   "description": "Minimalist NFC verification system for teachers to validate student appointments via counselor approval.",
   "requestFramePermissions": []
 }
