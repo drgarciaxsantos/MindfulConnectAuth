@@ -53,9 +53,13 @@ const App: React.FC = () => {
   };
 
   const handleNfcRead = async (mode: 'TEACHER' | 'STUDENT', serial: string, payload: string) => {
-    // Strategy: Prefer Payload if available (more secure if signed/encrypted in future), fallback to Serial
-    // Normalize to lowercase to match Supabase UUIDs typically stored in lowercase
-    const rawValue = payload.trim() || serial;
+    // Strategy: Prefer Payload if available, fallback to Serial.
+    // Clean inputs: Remove null bytes and whitespace which commonly cause DB lookup failures.
+    const cleanPayload = payload ? payload.replace(/\u0000/g, '').trim() : '';
+    const cleanSerial = serial ? serial.trim() : '';
+    
+    // Normalize: Use the payload if it exists, otherwise serial. Lowercase it for consistent DB matching.
+    const rawValue = cleanPayload || cleanSerial;
     const nfcValue = rawValue.toLowerCase();
 
     if (!nfcValue) {
@@ -74,15 +78,24 @@ const App: React.FC = () => {
 
   const authenticateTeacher = async (nfcUid: string) => {
     try {
-      // NOTE: You must create a 'teachers' table or adapt this query to your specific user table
+      console.log(`Authenticating Teacher with UID: ${nfcUid}`);
+      
+      // Use .ilike() for case-insensitive match and .maybeSingle() to handle 0 results gracefully
       const { data, error } = await supabase
         .from('teachers')
         .select('*')
-        .eq('nfc_uid', nfcUid)
-        .single();
+        .ilike('nfc_uid', nfcUid) 
+        .maybeSingle();
 
-      if (error || !data) {
-        throw new Error(`Teacher ID not recognized. Scanned: ${nfcUid}`);
+      if (error) {
+        throw new Error(`Database Error: ${error.message}`);
+      }
+
+      if (!data) {
+        // If data is null but no error, it usually means 1 of 2 things:
+        // 1. The ID isn't in the DB.
+        // 2. RLS (Row Level Security) is on, and no policy allows 'SELECT'.
+        throw new Error(`Teacher ID not recognized. Scanned: ${nfcUid}. (Hint: Check DB Table or RLS Policies)`);
       }
 
       setTeacher(data);
@@ -98,19 +111,25 @@ const App: React.FC = () => {
     setStep(AppStep.PROCESSING);
 
     try {
-      // 1. Find Student
+      console.log(`Verifying Student with UID: ${nfcUid}`);
+
+      // 1. Find Student (Check both nfc_uid and student_id_number using ilike)
       const { data: student, error: studentError } = await supabase
         .from('students')
         .select('*')
-        .or(`nfc_uid.eq.${nfcUid},student_id_number.eq.${nfcUid}`) // Check both for flexibility
-        .single();
+        .or(`nfc_uid.ilike.${nfcUid},student_id_number.ilike.${nfcUid}`)
+        .maybeSingle();
 
-      if (studentError || !student) {
+      if (studentError) {
+        throw new Error(`DB Error: ${studentError.message}`);
+      }
+
+      if (!student) {
         throw new Error(`Student tag not recognized. Scanned: ${nfcUid}`);
       }
       setScannedStudent(student);
 
-      // 2. Find PENDING Appointment for today (or logic specific to your school rules)
+      // 2. Find PENDING Appointment for today
       const { data: appt, error: apptError } = await supabase
         .from('appointments')
         .select('*')
@@ -118,9 +137,13 @@ const App: React.FC = () => {
         .eq('status', 'PENDING')
         .order('date', { ascending: false }) // Get latest
         .limit(1)
-        .single();
+        .maybeSingle();
 
-      if (apptError || !appt) {
+      if (apptError) {
+        throw new Error(`Appointment Lookup Error: ${apptError.message}`);
+      }
+
+      if (!appt) {
         throw new Error(`No PENDING appointment found for ${student.name}.`);
       }
 
@@ -130,14 +153,13 @@ const App: React.FC = () => {
       const { error: notifError } = await supabase
         .from('notifications')
         .insert({
-          user_id: appt.counselor_id, // Send to the specific counselor
+          user_id: appt.counselor_id,
           message: `VERIFICATION REQUEST: ${student.name} (${student.section}) is at the gate for appointment at ${appt.time}.`,
           is_read: false
         });
 
       if (notifError) {
         console.error("Notification failed", notifError);
-        // We continue anyway, hoping the counselor sees the dashboard update
       }
 
       // 4. Listen for Decision
@@ -303,7 +325,7 @@ const App: React.FC = () => {
           <div className="bg-red-50 w-full p-6 rounded-2xl border border-red-100 text-center">
             <div className="text-red-500 text-5xl mb-4">!</div>
             <h3 className="text-red-800 font-bold text-lg mb-2">Verification Failed</h3>
-            <p className="text-red-600 mb-6">{errorMsg}</p>
+            <p className="text-red-600 mb-6 font-mono text-sm break-all">{errorMsg}</p>
             <button 
               onClick={resetFlow}
               className="bg-white text-red-600 border border-red-200 px-6 py-2 rounded-lg font-medium hover:bg-red-50"

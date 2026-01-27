@@ -9,13 +9,19 @@ CREATE TABLE IF NOT EXISTS public.teachers (
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Fix: Ensure nfc_uid exists if table was already created without it (prevents "column does not exist" error)
+-- Fix: Ensure nfc_uid exists if table was already created without it
 ALTER TABLE public.teachers ADD COLUMN IF NOT EXISTS nfc_uid text UNIQUE;
 
--- 2. Insert the specific Teacher ID provided
+-- 2. Clean up conflicts and Insert specific Teacher ID
+-- Step A: Delete any existing row that already claims this NFC ID to prevent "duplicate key" error
+DELETE FROM public.teachers WHERE nfc_uid = '04:84:c8:d1:2e:61:80';
+
+-- Step B: Delete any existing 'Authorized Gatekeeper' to avoid duplicate names with different IDs
+DELETE FROM public.teachers WHERE name = 'Authorized Gatekeeper';
+
+-- Step C: Insert the correct record fresh
 INSERT INTO public.teachers (name, nfc_uid)
-VALUES ('Authorized Gatekeeper', 'c14999e4-7f28-4034-8c83-0941913317c2')
-ON CONFLICT (nfc_uid) DO NOTHING;
+VALUES ('Authorized Gatekeeper', '04:84:c8:d1:2e:61:80');
 
 -- 3. Create Students Table
 CREATE TABLE IF NOT EXISTS public.students (

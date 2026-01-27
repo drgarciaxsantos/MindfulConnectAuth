@@ -23,7 +23,7 @@ export const scanNfcTag = async (
     await ndef.scan();
     
     const handleReading = (event: any) => {
-      const serialNumber = event.serialNumber;
+      const serialNumber = event.serialNumber || '';
       let payload = '';
 
       // Try to read text record if available
@@ -63,7 +63,12 @@ export const scanNfcTag = async (
         }
       }
 
-      onReading(serialNumber, payload);
+      // Final sanitization of inputs before sending to app
+      // Remove null terminators which often sneak in from binary decodes
+      const safePayload = payload.replace(/\0/g, '').trim();
+      const safeSerial = serialNumber.replace(/\0/g, '').trim();
+
+      onReading(safeSerial, safePayload);
     };
 
     const handleError = (error: any) => {
