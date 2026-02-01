@@ -131,74 +131,95 @@ export const App: React.FC = () => {
     setStep(AppStep.PROCESSING);
 
     try {
-      console.log(`Verifying Student with UID: ${nfcUid}`);
+      console.log(`Verifying Student with UID via RPC: ${nfcUid}`);
 
-      // 1. Find the Student
-      let query = supabase.from('students').select('*');
-      
-      if (nfcUid.includes(':')) {
-         query = query.ilike('nfc_uid', nfcUid);
-      } else {
-         query = query.or(`nfc_uid.ilike."${nfcUid}",student_id_number.ilike."${nfcUid}"`);
-      }
+      // NEW LOGIC: Use RPC function as requested
+      const { data, error } = await supabase.rpc('get_nfc_appointment', { 
+        scan_nfc_uid: nfcUid 
+      });
 
-      const { data: student, error: studentError } = await query.maybeSingle();
+      if (error) throw error;
 
-      if (studentError) throw studentError;
-
-      if (!student) {
+      // If data is empty, it means no valid appointment found for today or tag is unknown.
+      if (!data || data.length === 0) {
         throw new Error("Unauthorized Tag");
       }
+
+      // Take the first record returned by the RPC
+      const record = data[0];
+
+      // Map RPC result to local state objects
+      const student: Student = {
+        id: record.student_id,
+        name: record.student_name,
+        section: record.section,
+        student_id_number: record.student_id_number || 'N/A',
+        nfc_uid: nfcUid
+      };
+
+      const appt: Appointment = {
+        id: record.id,
+        student_id: record.student_id,
+        student_name: record.student_name,
+        section: record.section,
+        date: record.date,
+        time: record.time,
+        reason: record.reason,
+        status: record.status,
+        counselor_id: record.counselor_id,
+        counselor_name: record.counselor_name,
+      };
+
       setScannedStudent(student);
 
-      // 2. Check for CONFIRMED (ACCEPTED) appointments.
-      // We also check for 'VERIFYING' in case the scan was interrupted previously or is in progress.
-      const { data: appt, error: apptError } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('student_id', student.id)
-        .in('status', ['ACCEPTED', 'VERIFYING']) 
-        .order('date', { ascending: false }) 
-        .limit(1)
-        .maybeSingle();
+      // Handle Status Logic
+      if (appt.status === 'PENDING') {
+         setActiveAppointment(appt);
+         setStep(AppStep.NO_APPOINTMENT);
+         return;
+      }
 
-      if (apptError) throw apptError;
+      if (appt.status === 'DENIED') {
+         setActiveAppointment(appt);
+         setStep(AppStep.NO_APPOINTMENT);
+         return;
+      }
 
-      // Logic Branch: NO confirmed appointment found (might be Pending, Denied, or None)
-      if (!appt) {
-        console.log("No ACCEPTED or VERIFYING appointment found for student:", student.id);
+      // Logic Branch: ACCEPTED, VERIFYING, or CONFIRMED -> Start/Resume Gate Request
+      // 'CONFIRMED' means appointment is booked but not yet 'Gate Verified'.
+      if (appt.status === 'ACCEPTED' || appt.status === 'VERIFYING' || appt.status === 'CONFIRMED') {
+        
+        // If it is CONFIRMED or ACCEPTED, move to VERIFYING state to indicate they are at the gate
+        if (appt.status === 'ACCEPTED' || appt.status === 'CONFIRMED') {
+          const { error: updateError } = await supabase
+            .from('appointments')
+            .update({ status: 'VERIFYING' })
+            .eq('id', appt.id);
+            
+          if (updateError) throw updateError;
+          appt.status = 'VERIFYING'; // Update local state
+        }
+
+        setActiveAppointment(appt);
+
+        // Notify Counselor
+        const { error: notifError } = await supabase
+          .from('notifications')
+          .insert({
+            user_id: appt.counselor_id,
+            message: `GATE REQUEST: ${student.name} is at the gate. Please confirm entry.`,
+            is_read: false
+          });
+
+        if (notifError) console.error("Notification failed", notifError);
+
+        setStep(AppStep.WAITING_APPROVAL);
+        subscribeToAppointment(appt.id);
+      } else {
+        // Fallback for weird statuses (like COMPLETED or CANCELLED)
+        setActiveAppointment(appt);
         setStep(AppStep.NO_APPOINTMENT);
-        return; 
       }
-
-      // Logic Branch: Confirmed Appointment found -> Start/Resume Verification Request
-      
-      // If it's already verifying, we don't need to update status, just notify/listen
-      if (appt.status === 'ACCEPTED') {
-        const { error: updateError } = await supabase
-          .from('appointments')
-          .update({ status: 'VERIFYING' })
-          .eq('id', appt.id);
-          
-        if (updateError) throw updateError;
-        appt.status = 'VERIFYING'; // Update local state
-      }
-
-      setActiveAppointment(appt);
-
-      // Notify Counselor (Send 'GATE REQUEST' regardless if it's new or a re-scan)
-      const { error: notifError } = await supabase
-        .from('notifications')
-        .insert({
-          user_id: appt.counselor_id,
-          message: `GATE REQUEST: ${student.name} is at the gate. Please confirm entry.`,
-          is_read: false
-        });
-
-      if (notifError) console.error("Notification failed", notifError);
-
-      setStep(AppStep.WAITING_APPROVAL);
-      subscribeToAppointment(appt.id);
 
     } catch (err: any) {
       handleError(err);
@@ -223,8 +244,6 @@ export const App: React.FC = () => {
           const newStatus = payload.new.status;
           // The counselor will set it back to ACCEPTED (Approved) or DENIED
           // Note: If they approve, it goes back to 'ACCEPTED'. 
-          // We need to differentiate "Initial Accepted" vs "Gate Approved Accepted"? 
-          // Actually, if it goes to ACCEPTED from VERIFYING, that means "Let them in".
           
           if (newStatus === 'ACCEPTED' || newStatus === 'DENIED') {
             setActiveAppointment(payload.new as Appointment);
@@ -254,7 +273,13 @@ export const App: React.FC = () => {
   };
 
   const handleError = (err: any) => {
-    console.error("App Error:", err);
+    console.group("--- App Error Debugging ---");
+    console.error("Full Error Object:", err);
+    if (err.stack) console.error("Stack Trace:", err.stack);
+    if (err.details) console.error("Supabase Details:", err.details);
+    if (err.hint) console.error("Supabase Hint:", err.hint);
+    console.groupEnd();
+    
     let message = err.message || "Unknown Error";
     
     if (message.includes("Failed to fetch")) {
@@ -340,9 +365,27 @@ export const App: React.FC = () => {
                <h3 className="text-xl font-bold text-slate-900 mb-1">{scannedStudent?.name}</h3>
                <p className="text-slate-500 mb-6">{scannedStudent?.section}</p>
                
-               <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  <p className="text-slate-800 font-bold text-lg">No confirmed appointment.</p>
-                  <p className="text-slate-500 text-sm mt-1">No authorization available.</p>
+               <div className={`p-4 rounded-xl border ${
+                  activeAppointment?.status === 'PENDING' ? 'bg-yellow-50 border-yellow-100' :
+                  activeAppointment?.status === 'DENIED' ? 'bg-red-50 border-red-100' :
+                  'bg-slate-50 border-slate-100'
+               }`}>
+                  {activeAppointment?.status === 'PENDING' ? (
+                     <>
+                        <p className="text-yellow-700 font-bold text-lg">Appointment Pending</p>
+                        <p className="text-yellow-600 text-sm mt-1">Counselor approval required.</p>
+                     </>
+                  ) : activeAppointment?.status === 'DENIED' ? (
+                      <>
+                        <p className="text-red-700 font-bold text-lg">Appointment Denied</p>
+                        <p className="text-red-600 text-sm mt-1">Access request was rejected.</p>
+                     </>
+                  ) : (
+                     <>
+                        <p className="text-slate-800 font-bold text-lg">No Confirmed Appointment</p>
+                        <p className="text-slate-500 text-sm mt-1">No authorization available for status: {activeAppointment?.status}</p>
+                     </>
+                  )}
                </div>
             </div>
              <button 
