@@ -22,7 +22,6 @@ export interface Appointment {
   reason: string;
   status: 'PENDING' | 'ACCEPTED' | 'DENIED' | 'COMPLETED' | 'VERIFYING';
   counselor_id: string;
-  counselor_name?: string;
 }
 
 export enum AppStep {
