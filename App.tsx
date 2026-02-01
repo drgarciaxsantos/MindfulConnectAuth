@@ -237,7 +237,8 @@ export const App: React.FC = () => {
         (payload) => {
           const newStatus = payload.new.status;
           
-          if (newStatus === 'ACCEPTED' || newStatus === 'DENIED') {
+          // Allow CONFIRMED as a success state along with ACCEPTED
+          if (newStatus === 'ACCEPTED' || newStatus === 'DENIED' || newStatus === 'CONFIRMED') {
             setActiveAppointment(payload.new as Appointment);
             setStep(AppStep.RESULT);
             unsubscribeRealtime();
