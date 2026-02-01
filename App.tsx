@@ -185,12 +185,11 @@ export const App: React.FC = () => {
          return;
       }
 
-      // Logic Branch: ACCEPTED, VERIFYING, or CONFIRMED -> Start/Resume Gate Request
-      // 'CONFIRMED' means appointment is booked but not yet 'Gate Verified'.
-      if (appt.status === 'ACCEPTED' || appt.status === 'VERIFYING' || appt.status === 'CONFIRMED') {
+      // Logic Branch: ACCEPTED or VERIFYING -> Start/Resume Gate Request
+      if (appt.status === 'ACCEPTED' || appt.status === 'VERIFYING') {
         
-        // If it is CONFIRMED or ACCEPTED, move to VERIFYING state to indicate they are at the gate
-        if (appt.status === 'ACCEPTED' || appt.status === 'CONFIRMED') {
+        // If it's already verifying, we don't need to update status, just notify/listen
+        if (appt.status === 'ACCEPTED') {
           const { error: updateError } = await supabase
             .from('appointments')
             .update({ status: 'VERIFYING' })
@@ -216,7 +215,7 @@ export const App: React.FC = () => {
         setStep(AppStep.WAITING_APPROVAL);
         subscribeToAppointment(appt.id);
       } else {
-        // Fallback for weird statuses (like COMPLETED or CANCELLED)
+        // Fallback for weird statuses
         setActiveAppointment(appt);
         setStep(AppStep.NO_APPOINTMENT);
       }
@@ -377,7 +376,7 @@ export const App: React.FC = () => {
                   ) : (
                      <>
                         <p className="text-slate-800 font-bold text-lg">No Confirmed Appointment</p>
-                        <p className="text-slate-500 text-sm mt-1">No authorization available for status: {activeAppointment?.status}</p>
+                        <p className="text-slate-500 text-sm mt-1">No authorization available.</p>
                      </>
                   )}
                </div>
