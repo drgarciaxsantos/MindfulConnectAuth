@@ -20,7 +20,7 @@ export interface Appointment {
   date: string;
   time: string;
   reason: string;
-  status: 'PENDING' | 'ACCEPTED' | 'DENIED' | 'COMPLETED' | 'VERIFYING';
+  status: 'PENDING' | 'ACCEPTED' | 'DENIED' | 'COMPLETED' | 'VERIFYING' | 'CONFIRMED';
   counselor_id: string;
 }
 

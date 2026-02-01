@@ -152,12 +152,13 @@ export const App: React.FC = () => {
       setScannedStudent(student);
 
       // 2. Check for CONFIRMED (ACCEPTED) appointments.
+      // We include 'CONFIRMED' to catch appointments that are booked but not yet at the gate.
       // We also check for 'VERIFYING' in case the scan was interrupted previously or is in progress.
       const { data: appt, error: apptError } = await supabase
         .from('appointments')
         .select('*')
         .eq('student_id', student.id)
-        .in('status', ['ACCEPTED', 'VERIFYING']) 
+        .in('status', ['ACCEPTED', 'VERIFYING', 'CONFIRMED']) 
         .order('date', { ascending: false }) 
         .limit(1)
         .maybeSingle();
@@ -166,15 +167,15 @@ export const App: React.FC = () => {
 
       // Logic Branch: NO confirmed appointment found (might be Pending, Denied, or None)
       if (!appt) {
-        console.log("No ACCEPTED or VERIFYING appointment found for student:", student.id);
+        console.log("No confirmed appointment found for student:", student.id);
         setStep(AppStep.NO_APPOINTMENT);
         return; 
       }
 
       // Logic Branch: Confirmed Appointment found -> Start/Resume Verification Request
       
-      // If it's already verifying, we don't need to update status, just notify/listen
-      if (appt.status === 'ACCEPTED') {
+      // If it's ACCEPTED (Pre-approved) or CONFIRMED (Booked), we move it to VERIFYING to indicate "At the gate"
+      if (['ACCEPTED', 'CONFIRMED'].includes(appt.status)) {
         const { error: updateError } = await supabase
           .from('appointments')
           .update({ status: 'VERIFYING' })
@@ -223,8 +224,6 @@ export const App: React.FC = () => {
           const newStatus = payload.new.status;
           // The counselor will set it back to ACCEPTED (Approved) or DENIED
           // Note: If they approve, it goes back to 'ACCEPTED'. 
-          // We need to differentiate "Initial Accepted" vs "Gate Approved Accepted"? 
-          // Actually, if it goes to ACCEPTED from VERIFYING, that means "Let them in".
           
           if (newStatus === 'ACCEPTED' || newStatus === 'DENIED') {
             setActiveAppointment(payload.new as Appointment);
