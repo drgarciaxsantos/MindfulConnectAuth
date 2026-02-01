@@ -273,13 +273,7 @@ export const App: React.FC = () => {
   };
 
   const handleError = (err: any) => {
-    console.group("--- App Error Debugging ---");
-    console.error("Full Error Object:", err);
-    if (err.stack) console.error("Stack Trace:", err.stack);
-    if (err.details) console.error("Supabase Details:", err.details);
-    if (err.hint) console.error("Supabase Hint:", err.hint);
-    console.groupEnd();
-    
+    console.error("App Error:", err);
     let message = err.message || "Unknown Error";
     
     if (message.includes("Failed to fetch")) {
