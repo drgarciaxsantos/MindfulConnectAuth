@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase, checkSupabaseConfig, testConnection } from './supabase';
-import { checkNfcSupport, scanNfcTag } from './nfcService';
+import { checkNfcSupport, checkSerialSupport, scanNfcTag, connectSerialScanner } from './nfcService';
 import { Layout } from './components/Layout';
 import { StatusBadge } from './components/StatusBadge';
 import { AppStep, Appointment, Student, Teacher } from './types';
@@ -11,15 +11,17 @@ export const App: React.FC = () => {
   const [step, setStep] = useState<AppStep>(AppStep.LOGIN);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(true);
+  const [isSerialConnected, setIsSerialConnected] = useState(false);
   
   // Data State
   const [teacher, setTeacher] = useState<Teacher | null>(null);
   const [scannedStudent, setScannedStudent] = useState<Student | null>(null);
   const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
   
-  // Refs for cleanup
+  // Refs for cleanup and Serial Communication
   const stopScanRef = useRef<(() => void) | null>(null);
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
+  const serialWriterRef = useRef<((msg: string) => Promise<void>) | null>(null);
 
   useEffect(() => {
     initApp();
@@ -51,25 +53,68 @@ export const App: React.FC = () => {
       return;
     }
 
-    // 3. Check NFC compatibility
-    if (!checkNfcSupport()) {
-      setErrorMsg("Web NFC is not supported on this browser. Use Chrome on Android.");
+    // 3. Check NFC compatibility (Mobile or Desktop)
+    if (!checkNfcSupport() && !checkSerialSupport()) {
+      setErrorMsg("No NFC support detected (Web NFC or Web Serial).");
     }
 
     setIsConnecting(false);
   };
 
-  // --- NFC Handlers ---
+  // --- NFC Handlers (Web NFC + Serial) ---
+
+  const connectSerial = async () => {
+    setErrorMsg(null);
+    const connection = await connectSerialScanner(
+      (uid) => {
+        // Serial data comes in asynchronously
+        // We need to check current state to decide what to do with the UID
+        // Using a functional state update or a ref for 'step' would be safer, 
+        // but for simplicity we'll dispatch based on current expectation.
+        handleIncomingUid(uid);
+      },
+      (err) => setErrorMsg(err)
+    );
+
+    if (connection) {
+      serialWriterRef.current = connection.write;
+      setIsSerialConnected(true);
+      // Optional: Flash LCD that it's connected
+      connection.write("CONNECTED");
+    }
+  };
+
+  // Unified handler for both Web NFC and Serial events
+  const handleIncomingUid = (uid: string) => {
+    // We need to know context. Since this is async, we can check a Ref or simplified logic.
+    // Ideally, we check if we have a teacher logged in.
+    setTeacher((prevTeacher) => {
+      if (!prevTeacher) {
+        authenticateTeacher(uid);
+        return prevTeacher; // State update happens in authenticateTeacher
+      } else {
+        // Teacher is logged in, verify student
+        verifyStudent(uid);
+        return prevTeacher;
+      }
+    });
+  };
 
   const startNfcScan = async (mode: 'TEACHER' | 'STUDENT') => {
+    // If Serial is connected, we don't need to start Web NFC scanning again, 
+    // but we can for mixed usage.
     setErrorMsg(null);
     if (stopScanRef.current) stopScanRef.current();
 
-    const stop = await scanNfcTag(
-      (serial, payload) => handleNfcRead(mode, serial, payload),
-      (err) => setErrorMsg(err)
-    );
-    stopScanRef.current = stop;
+    if (checkNfcSupport()) {
+      const stop = await scanNfcTag(
+        (serial, payload) => handleNfcRead(mode, serial, payload),
+        (err) => setErrorMsg(err)
+      );
+      stopScanRef.current = stop;
+    } else if (!isSerialConnected) {
+      setErrorMsg("Web NFC not supported. Please connect ESP32 Reader.");
+    }
   };
 
   const stopNfcScan = () => {
@@ -100,9 +145,16 @@ export const App: React.FC = () => {
 
   // --- Logic Flows ---
 
+  const sendToLcd = (msg: string) => {
+    if (serialWriterRef.current) {
+      serialWriterRef.current(msg);
+    }
+  };
+
   const authenticateTeacher = async (nfcUid: string) => {
     try {
       console.log(`Authenticating Teacher with UID: ${nfcUid}`);
+      sendToLcd("CHECKING...");
       
       const { data, error } = await supabase
         .from('teachers')
@@ -113,9 +165,11 @@ export const App: React.FC = () => {
       if (error) throw error;
 
       if (!data) {
+        sendToLcd("ACCESS DENIED");
         throw new Error("Unauthorized Tag");
       }
 
+      sendToLcd("TEACHER OK");
       setTeacher(data);
       setStep(AppStep.SCAN_STUDENT);
       stopNfcScan(); 
@@ -127,6 +181,7 @@ export const App: React.FC = () => {
   const verifyStudent = async (nfcUid: string) => {
     stopNfcScan(); 
     setStep(AppStep.PROCESSING);
+    sendToLcd("VERIFYING...");
 
     try {
       console.log(`Verifying Student with UID: ${nfcUid}`);
@@ -145,6 +200,7 @@ export const App: React.FC = () => {
       if (studentError) throw studentError;
 
       if (!student) {
+        sendToLcd("UNKNOWN ID");
         throw new Error("Unauthorized Tag");
       }
       setScannedStudent(student);
@@ -164,12 +220,14 @@ export const App: React.FC = () => {
       // Logic Branch: NO confirmed appointment found
       if (!appt) {
         console.log("No confirmed appointment found for student:", student.id);
+        sendToLcd("NO APPT FOUND");
         setStep(AppStep.NO_APPOINTMENT);
         return; 
       }
 
       // Logic Branch: Found valid appointment. 
       // PAUSE HERE. Do NOT send notification yet. Show details to teacher.
+      sendToLcd("APPT FOUND"); // Teacher needs to confirm on screen
       setActiveAppointment(appt);
       setStep(AppStep.CONFIRM_DETAILS);
 
@@ -186,6 +244,7 @@ export const App: React.FC = () => {
     if (!activeAppointment || !scannedStudent) return;
     
     setStep(AppStep.PROCESSING);
+    sendToLcd("SENDING REQ...");
 
     try {
       // 1. Update status to VERIFYING (Indicates they are at the gate)
@@ -213,6 +272,7 @@ export const App: React.FC = () => {
 
       // 3. Move to Waiting Screen and Subscribe
       setStep(AppStep.WAITING_APPROVAL);
+      sendToLcd("WAITING...");
       subscribeToAppointment(activeAppointment.id);
 
     } catch (err) {
@@ -237,8 +297,13 @@ export const App: React.FC = () => {
         (payload) => {
           const newStatus = payload.new.status;
           
-          // Allow CONFIRMED as a success state along with ACCEPTED
-          if (newStatus === 'ACCEPTED' || newStatus === 'DENIED' || newStatus === 'CONFIRMED') {
+          if (newStatus === 'ACCEPTED' || newStatus === 'CONFIRMED') {
+            sendToLcd("APPROVED"); // Success message to ESP32
+            setActiveAppointment(payload.new as Appointment);
+            setStep(AppStep.RESULT);
+            unsubscribeRealtime();
+          } else if (newStatus === 'DENIED') {
+            sendToLcd("DENIED"); // Deny message to ESP32
             setActiveAppointment(payload.new as Appointment);
             setStep(AppStep.RESULT);
             unsubscribeRealtime();
@@ -258,6 +323,7 @@ export const App: React.FC = () => {
   };
 
   const resetFlow = () => {
+    sendToLcd("READY");
     setScannedStudent(null);
     setActiveAppointment(null);
     setErrorMsg(null);
@@ -273,6 +339,7 @@ export const App: React.FC = () => {
     }
     setErrorMsg(message);
     setStep(AppStep.ERROR);
+    sendToLcd("ERROR");
   };
 
   // --- Render Helpers ---
@@ -298,14 +365,33 @@ export const App: React.FC = () => {
             </div>
             <div className="text-center">
               <p className="text-purple-900 font-medium text-lg">Teacher Login</p>
-              <p className="text-slate-500 mt-2">Tap your NFC badge to verify identity</p>
+              <p className="text-slate-500 mt-2">Tap NFC badge or connect reader</p>
             </div>
-            <button 
-              onClick={() => startNfcScan('TEACHER')}
-              className="bg-purple-600 text-white px-8 py-3 rounded-xl font-semibold shadow-lg shadow-purple-200 hover:bg-purple-700 transition-colors w-full"
-            >
-              Start Scan
-            </button>
+            <div className="w-full space-y-3">
+              <button 
+                onClick={() => startNfcScan('TEACHER')}
+                className="bg-purple-600 text-white px-8 py-3 rounded-xl font-semibold shadow-lg shadow-purple-200 hover:bg-purple-700 transition-colors w-full"
+              >
+                Scan with Phone NFC
+              </button>
+              
+              {!isSerialConnected && checkSerialSupport() && (
+                 <button 
+                  onClick={connectSerial}
+                  className="bg-white text-purple-600 border-2 border-purple-100 px-8 py-3 rounded-xl font-semibold hover:bg-purple-50 transition-colors w-full flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                  </svg>
+                  Connect USB Reader (ESP32)
+                </button>
+              )}
+              {isSerialConnected && (
+                <div className="text-center text-green-600 text-sm font-semibold bg-green-50 py-2 rounded-lg">
+                  ✓ External Reader Connected
+                </div>
+              )}
+            </div>
           </div>
         );
 
@@ -321,12 +407,18 @@ export const App: React.FC = () => {
               <p className="text-xl font-semibold text-slate-800">Ready to Verify</p>
               <p className="text-slate-500 mt-1">Tap Student ID Card</p>
             </div>
-            <button 
-              onClick={() => startNfcScan('STUDENT')}
-              className="bg-purple-600 text-white px-8 py-3 rounded-xl font-semibold shadow-lg shadow-purple-200 hover:bg-purple-700 w-full"
-            >
-              Scan Student
-            </button>
+            {isSerialConnected ? (
+               <div className="animate-pulse text-purple-600 font-medium">
+                 Listening to USB Reader...
+               </div>
+            ) : (
+              <button 
+                onClick={() => startNfcScan('STUDENT')}
+                className="bg-purple-600 text-white px-8 py-3 rounded-xl font-semibold shadow-lg shadow-purple-200 hover:bg-purple-700 w-full"
+              >
+                Scan Student
+              </button>
+            )}
           </div>
         );
 
