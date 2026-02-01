@@ -43,7 +43,6 @@ export const App: React.FC = () => {
     }
 
     // 2. Test Actual Connectivity
-    // This catches "Failed to fetch" before the user even tries to scan.
     const conn = await testConnection();
     if (!conn.success) {
       setErrorMsg(`Connection Error: ${conn.message}. (Ensure you are online and API Key is correct)`);
@@ -55,7 +54,6 @@ export const App: React.FC = () => {
     // 3. Check NFC compatibility
     if (!checkNfcSupport()) {
       setErrorMsg("Web NFC is not supported on this browser. Use Chrome on Android.");
-      // We don't block usage, just warn
     }
 
     setIsConnecting(false);
@@ -151,9 +149,7 @@ export const App: React.FC = () => {
       }
       setScannedStudent(student);
 
-      // 2. Check for CONFIRMED (ACCEPTED) appointments.
-      // We include 'CONFIRMED' to catch appointments that are booked but not yet at the gate.
-      // We also check for 'VERIFYING' in case the scan was interrupted previously or is in progress.
+      // 2. Check for CONFIRMED/ACCEPTED appointments.
       const { data: appt, error: apptError } = await supabase
         .from('appointments')
         .select('*')
@@ -165,43 +161,61 @@ export const App: React.FC = () => {
 
       if (apptError) throw apptError;
 
-      // Logic Branch: NO confirmed appointment found (might be Pending, Denied, or None)
+      // Logic Branch: NO confirmed appointment found
       if (!appt) {
         console.log("No confirmed appointment found for student:", student.id);
         setStep(AppStep.NO_APPOINTMENT);
         return; 
       }
 
-      // Logic Branch: Confirmed Appointment found -> Start/Resume Verification Request
-      
-      // If it's ACCEPTED (Pre-approved) or CONFIRMED (Booked), we move it to VERIFYING to indicate "At the gate"
-      if (['ACCEPTED', 'CONFIRMED'].includes(appt.status)) {
-        const { error: updateError } = await supabase
-          .from('appointments')
-          .update({ status: 'VERIFYING' })
-          .eq('id', appt.id);
-          
-        if (updateError) throw updateError;
-        appt.status = 'VERIFYING'; // Update local state
-      }
-
+      // Logic Branch: Found valid appointment. 
+      // PAUSE HERE. Do NOT send notification yet. Show details to teacher.
       setActiveAppointment(appt);
+      setStep(AppStep.CONFIRM_DETAILS);
 
-      // Notify Counselor (Send 'GATE REQUEST' regardless if it's new or a re-scan)
+    } catch (err: any) {
+      handleError(err);
+    }
+  };
+
+  /**
+   * Called when the Teacher clicks "Send Verification" button.
+   * This updates the status and sends the notification.
+   */
+  const initiateGateRequest = async () => {
+    if (!activeAppointment || !scannedStudent) return;
+    
+    setStep(AppStep.PROCESSING);
+
+    try {
+      // 1. Update status to VERIFYING (Indicates they are at the gate)
+      const { error: updateError } = await supabase
+        .from('appointments')
+        .update({ status: 'VERIFYING' })
+        .eq('id', activeAppointment.id);
+        
+      if (updateError) throw updateError;
+      
+      // Update local state
+      const updatedAppt = { ...activeAppointment, status: 'VERIFYING' as const };
+      setActiveAppointment(updatedAppt);
+
+      // 2. Send Notification to Counselor
       const { error: notifError } = await supabase
         .from('notifications')
         .insert({
-          user_id: appt.counselor_id,
-          message: `GATE REQUEST: ${student.name} is at the gate. Please confirm entry.`,
+          user_id: activeAppointment.counselor_id,
+          message: `GATE REQUEST: ${scannedStudent.name} is at the gate for their ${activeAppointment.time} appointment.`,
           is_read: false
         });
 
       if (notifError) console.error("Notification failed", notifError);
 
+      // 3. Move to Waiting Screen and Subscribe
       setStep(AppStep.WAITING_APPROVAL);
-      subscribeToAppointment(appt.id);
+      subscribeToAppointment(activeAppointment.id);
 
-    } catch (err: any) {
+    } catch (err) {
       handleError(err);
     }
   };
@@ -222,8 +236,6 @@ export const App: React.FC = () => {
         },
         (payload) => {
           const newStatus = payload.new.status;
-          // The counselor will set it back to ACCEPTED (Approved) or DENIED
-          // Note: If they approve, it goes back to 'ACCEPTED'. 
           
           if (newStatus === 'ACCEPTED' || newStatus === 'DENIED') {
             setActiveAppointment(payload.new as Appointment);
@@ -255,11 +267,9 @@ export const App: React.FC = () => {
   const handleError = (err: any) => {
     console.error("App Error:", err);
     let message = err.message || "Unknown Error";
-    
     if (message.includes("Failed to fetch")) {
       message = "Network Error: Cannot reach database. Check internet connection.";
     }
-
     setErrorMsg(message);
     setStep(AppStep.ERROR);
   };
@@ -323,7 +333,52 @@ export const App: React.FC = () => {
         return (
           <div className="flex flex-col items-center text-center space-y-6">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
-            <p className="text-slate-600">Looking up records...</p>
+            <p className="text-slate-600">Processing...</p>
+          </div>
+        );
+
+      case AppStep.CONFIRM_DETAILS:
+        return (
+          <div className="w-full bg-white p-6 rounded-2xl shadow-xl border border-purple-50 space-y-6 animate-fade-in">
+             <div className="text-center border-b border-purple-100 pb-4">
+                <h3 className="text-2xl font-bold text-slate-900">{scannedStudent?.name}</h3>
+                <p className="text-slate-500 text-sm mt-1">{scannedStudent?.section}</p>
+             </div>
+
+             <div className="space-y-4">
+                <div className="bg-purple-50 p-4 rounded-xl space-y-3">
+                   <div className="flex justify-between items-center border-b border-purple-200 pb-2">
+                      <span className="text-xs text-purple-600 uppercase font-bold tracking-wider">Date</span>
+                      <span className="text-base font-semibold text-slate-800">{activeAppointment?.date}</span>
+                   </div>
+                   <div className="flex justify-between items-center border-b border-purple-200 pb-2">
+                      <span className="text-xs text-purple-600 uppercase font-bold tracking-wider">Time</span>
+                      <span className="text-base font-semibold text-slate-800">{activeAppointment?.time}</span>
+                   </div>
+                   <div className="flex flex-col space-y-1">
+                      <span className="text-xs text-purple-600 uppercase font-bold tracking-wider">Counselor</span>
+                      <span className="text-base font-semibold text-slate-800">{activeAppointment?.counselor_name}</span>
+                   </div>
+                </div>
+             </div>
+
+             <div className="flex flex-col gap-3 pt-2">
+                <button 
+                  onClick={initiateGateRequest}
+                  className="w-full py-4 bg-purple-600 text-white font-bold rounded-xl shadow-lg shadow-purple-200 hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Send Verification
+                </button>
+                <button 
+                  onClick={resetFlow}
+                  className="w-full py-3 text-slate-500 font-medium hover:bg-slate-50 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+             </div>
           </div>
         );
 
@@ -366,8 +421,8 @@ export const App: React.FC = () => {
               <h3 className="text-xl font-bold text-slate-800 mb-1">{scannedStudent?.name}</h3>
               <p className="text-slate-500 text-sm mb-4">{scannedStudent?.section}</p>
               <div className="bg-yellow-50 p-4 rounded-lg">
-                <p className="text-yellow-800 text-sm font-medium">Verifying with Counselor...</p>
-                <p className="text-yellow-600 text-xs mt-1">Notification sent. Waiting for response.</p>
+                <p className="text-yellow-800 text-sm font-medium">Request Sent</p>
+                <p className="text-yellow-600 text-xs mt-1">Waiting for counselor confirmation...</p>
               </div>
             </div>
           </div>

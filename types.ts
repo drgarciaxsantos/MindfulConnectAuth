@@ -22,16 +22,18 @@ export interface Appointment {
   reason: string;
   status: 'PENDING' | 'ACCEPTED' | 'DENIED' | 'COMPLETED' | 'VERIFYING' | 'CONFIRMED';
   counselor_id: string;
+  counselor_name: string; // Ensure this is included
 }
 
 export enum AppStep {
   LOGIN = 'LOGIN', // Teacher taps to log in
   SCAN_STUDENT = 'SCAN_STUDENT', // Teacher is ready to tap student
   PROCESSING = 'PROCESSING', // Looking up student/appt
+  CONFIRM_DETAILS = 'CONFIRM_DETAILS', // New Step: Show details before sending
   WAITING_APPROVAL = 'WAITING_APPROVAL', // Notification sent, waiting for Counselor
   RESULT = 'RESULT', // Final result shown
   ERROR = 'ERROR',
-  NO_APPOINTMENT = 'NO_APPOINTMENT' // New step for "No authorization required"
+  NO_APPOINTMENT = 'NO_APPOINTMENT' // "No authorization required"
 }
 
 export interface VerificationResult {

@@ -10,14 +10,20 @@ CREATE TABLE IF NOT EXISTS public.teachers (
 );
 
 -- Fix: Ensure nfc_uid exists if table was already created without it
-ALTER TABLE public.teachers ADD COLUMN IF NOT EXISTS nfc_uid text UNIQUE;
+DO $$
+BEGIN
+    ALTER TABLE public.teachers ADD COLUMN IF NOT EXISTS nfc_uid text UNIQUE;
+EXCEPTION
+    WHEN others THEN NULL;
+END $$;
 
 -- 2. Clean up conflicts and Insert specific Teacher ID
 DELETE FROM public.teachers WHERE nfc_uid = '04:84:c8:d1:2e:61:80';
 DELETE FROM public.teachers WHERE name = 'Authorized Gatekeeper';
 
 INSERT INTO public.teachers (name, nfc_uid)
-VALUES ('Authorized Gatekeeper', '04:84:c8:d1:2e:61:80');
+VALUES ('Authorized Gatekeeper', '04:84:c8:d1:2e:61:80')
+ON CONFLICT (nfc_uid) DO NOTHING;
 
 -- 3. Create Students Table
 CREATE TABLE IF NOT EXISTS public.students (
@@ -31,7 +37,12 @@ CREATE TABLE IF NOT EXISTS public.students (
 );
 
 -- Fix: Ensure nfc_uid exists on students
-ALTER TABLE public.students ADD COLUMN IF NOT EXISTS nfc_uid text UNIQUE;
+DO $$
+BEGIN
+    ALTER TABLE public.students ADD COLUMN IF NOT EXISTS nfc_uid text UNIQUE;
+EXCEPTION
+    WHEN others THEN NULL;
+END $$;
 
 -- 4. Create Counselors Table
 CREATE TABLE IF NOT EXISTS public.counselors (
@@ -60,14 +71,31 @@ CREATE TABLE IF NOT EXISTS public.appointments (
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- CRITICAL FIX: Update the Status Check Constraint to allow 'VERIFYING' and 'CONFIRMED'
+DO $$
+BEGIN
+    -- Drop the old constraint if it exists (it restricts values to just PENDING/ACCEPTED/etc)
+    ALTER TABLE public.appointments DROP CONSTRAINT IF EXISTS appointments_status_check;
+    
+    -- Add the new constraint with all required statuses
+    ALTER TABLE public.appointments ADD CONSTRAINT appointments_status_check 
+    CHECK (status IN ('PENDING', 'ACCEPTED', 'DENIED', 'COMPLETED', 'VERIFYING', 'CONFIRMED', 'CANCELLED'));
+EXCEPTION
+    WHEN others THEN NULL;
+END $$;
+
 -- 6. Add Missing Columns for Transfers and Rescheduling
-ALTER TABLE public.appointments 
-ADD COLUMN IF NOT EXISTS transfer_request_to_id uuid,
-ADD COLUMN IF NOT EXISTS transfer_request_to_name text,
-ADD COLUMN IF NOT EXISTS transfer_counselor_accepted boolean DEFAULT false,
-ADD COLUMN IF NOT EXISTS transfer_student_accepted boolean DEFAULT false,
-ADD COLUMN IF NOT EXISTS reschedule_proposed_date text,
-ADD COLUMN IF NOT EXISTS reschedule_proposed_time text;
+DO $$
+BEGIN
+    ALTER TABLE public.appointments ADD COLUMN IF NOT EXISTS transfer_request_to_id uuid;
+    ALTER TABLE public.appointments ADD COLUMN IF NOT EXISTS transfer_request_to_name text;
+    ALTER TABLE public.appointments ADD COLUMN IF NOT EXISTS transfer_counselor_accepted boolean DEFAULT false;
+    ALTER TABLE public.appointments ADD COLUMN IF NOT EXISTS transfer_student_accepted boolean DEFAULT false;
+    ALTER TABLE public.appointments ADD COLUMN IF NOT EXISTS reschedule_proposed_date text;
+    ALTER TABLE public.appointments ADD COLUMN IF NOT EXISTS reschedule_proposed_time text;
+EXCEPTION
+    WHEN others THEN NULL;
+END $$;
 
 -- 7. Create Notifications Table
 CREATE TABLE IF NOT EXISTS public.notifications (
@@ -90,18 +118,15 @@ CREATE TABLE IF NOT EXISTS public.availability (
 
 -- 9. Insert Data
 -- Clean up any existing claiming of this tag to prevent conflicts
-UPDATE public.students SET nfc_uid = NULL WHERE nfc_uid = '04:73:29:D2:2E:61:80';
+UPDATE public.students SET nfc_uid = NULL WHERE nfc_uid = '04:E0:28:D6:2E:61:80';
 
+-- Will Byers (The student we want to test)
 INSERT INTO public.students (student_id_number, password, name, section, parent_phone_number, nfc_uid)
 VALUES 
-  ('02000385842', 'password', 'Ashly Misha C. Espina', 'MAWD-202', '0917-123-4567', '04:73:29:D2:2E:61:80'),
-  ('02000123456', 'password', 'Will Byers', 'STEM-101', '0917-987-6543', NULL),
+  ('02000385842', 'password', 'Ashly Misha C. Espina', 'MAWD-202', '0917-123-4567', NULL),
+  ('02000123456', 'password', 'Will Byers', 'STEM-101', '0917-987-6543', '04:E0:28:D6:2E:61:80'), -- TARGET ID
   ('02000246810', 'password', 'Viktor Hargreeves', 'MAWD-202', '0977-777-7777', NULL),
-  ('02000131313', 'password', 'Banana Joe', 'STEM-103', '0913-131-3131', NULL),
-  ('02000654321', 'password', 'Harleen Quinzel', 'HUMSS-205', '0945-678,9101', NULL),
-  ('02000111111', 'password', 'Pamela Isley', 'ABM-204', '0924-681-1012', NULL),
-  ('02000222222', 'password', 'Caitlyn Kirraman', 'MAWD-202', '0942-863-4851', NULL),
-  ('02000333333', 'password', 'Sheldon Cooper', 'STEM-101', '0956-246-9563', NULL)
+  ('02000131313', 'password', 'Banana Joe', 'STEM-103', '0913-131-3131', NULL)
 ON CONFLICT (student_id_number) 
 DO UPDATE SET 
   nfc_uid = EXCLUDED.nfc_uid,
@@ -126,11 +151,12 @@ SELECT
   to_char(now(), 'YYYY-MM-DD'),
   to_char(now(), 'HH12:MI AM'),
   'NFC Gate Verification Test',
-  'PENDING'
+  'CONFIRMED'
 FROM public.students s, public.counselors c
-WHERE s.student_id_number = '02000385842'
+WHERE s.student_id_number = '02000123456' -- Will Byers
 AND c.email = 'wackylooky@gmail.com'
 AND NOT EXISTS (
     SELECT 1 FROM public.appointments a 
-    WHERE a.student_id = s.id AND a.status = 'PENDING'
+    WHERE a.student_id = s.id 
+      AND a.date = to_char(now(), 'YYYY-MM-DD')
 );
