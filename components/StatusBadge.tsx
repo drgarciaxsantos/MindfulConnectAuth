@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 interface StatusBadgeProps {
-  status: 'ACCEPTED' | 'DENIED' | 'PENDING' | 'CONFIRMED' | 'VERIFYING';
+  status: 'ACCEPTED' | 'DENIED' | 'PENDING' | 'CONFIRMED' | 'VERIFYING' | 'DEPARTED';
 }
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
@@ -11,14 +11,15 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
     DENIED: 'bg-red-100 text-red-700 border-red-200',
     PENDING: 'bg-yellow-100 text-yellow-700 border-yellow-200',
     VERIFYING: 'bg-orange-100 text-orange-700 border-orange-200',
+    DEPARTED: 'bg-blue-100 text-blue-700 border-blue-200',
   };
 
   // Fallback for unknown statuses
-  const activeStyle = styles[status] || styles.PENDING;
+  const activeStyle = (styles as any)[status] || styles.PENDING;
 
   return (
     <div className={`px-6 py-3 rounded-full border-2 font-bold text-lg tracking-widest uppercase ${activeStyle}`}>
-      {status}
+      {status === 'DEPARTED' ? 'ON WAY' : status}
     </div>
   );
 };

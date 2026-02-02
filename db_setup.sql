@@ -68,7 +68,8 @@ INSERT INTO public.appointment_statuses (status) VALUES
 ('COMPLETED'),
 ('ACCEPTED'),
 ('DENIED'),
-('VERIFYING')
+('VERIFYING'),
+('DEPARTED')
 ON CONFLICT (status) DO NOTHING;
 
 -- 6. Create Appointments Table

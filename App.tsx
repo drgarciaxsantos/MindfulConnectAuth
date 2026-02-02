@@ -49,6 +49,7 @@ export const App: React.FC = () => {
   const [scannedStudent, setScannedStudent] = useState<Student | null>(null);
   const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
   const [minutesUntilAppt, setMinutesUntilAppt] = useState<number>(0);
+  const [isConfirmingDeparture, setIsConfirmingDeparture] = useState(false);
   
   // Refs for cleanup
   const stopScanRef = useRef<(() => void) | null>(null);
@@ -280,6 +281,41 @@ export const App: React.FC = () => {
     }
   };
 
+  const confirmDeparture = async () => {
+    if (!activeAppointment || !scannedStudent) return;
+    setIsConfirmingDeparture(true);
+
+    try {
+      const teacherName = teacher?.name || "Staff";
+
+      // 1. Update Appointment Status to DEPARTED
+      const { error: updateError } = await supabase
+        .from('appointments')
+        .update({ status: 'DEPARTED' })
+        .eq('id', activeAppointment.id);
+
+      if (updateError) throw updateError;
+
+      // 2. Send Notification to Counselor
+      const { error: notifError } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: activeAppointment.counselor_id,
+          message: `GATE_UPDATE: ${teacherName} confirmed that ${scannedStudent.name} is on their way to the Guidance Office.`,
+          is_read: false
+        });
+      
+      if (notifError) console.error("Notification failed", notifError);
+
+      // 3. Update Local State
+      setActiveAppointment({ ...activeAppointment, status: 'DEPARTED' });
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setIsConfirmingDeparture(false);
+    }
+  };
+
   const subscribeToAppointment = (apptId: string) => {
     unsubscribeRealtime();
 
@@ -323,6 +359,7 @@ export const App: React.FC = () => {
     setActiveAppointment(null);
     setErrorMsg(null);
     setStep(AppStep.SCAN_STUDENT);
+    setIsConfirmingDeparture(false);
     unsubscribeRealtime();
   };
 
@@ -465,7 +502,9 @@ export const App: React.FC = () => {
         );
 
       case AppStep.RESULT:
-        const isApproved = activeAppointment?.status === 'ACCEPTED' || activeAppointment?.status === 'CONFIRMED';
+        const status = activeAppointment?.status;
+        const isApproved = status === 'ACCEPTED' || status === 'CONFIRMED';
+        const isDeparted = status === 'DEPARTED';
         const isGuard = teacher?.name?.toLowerCase().includes('guard');
         
         return (
@@ -473,12 +512,25 @@ export const App: React.FC = () => {
              {activeAppointment && <StatusBadge status={activeAppointment.status as any} />}
              
              <div className="bg-white w-full rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
-                <div className={`p-6 text-center border-b ${isApproved ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
+                <div className={`p-6 text-center border-b ${isApproved || isDeparted ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
                     <h3 className="text-2xl font-bold text-slate-900 mb-1">{scannedStudent?.name}</h3>
                     <p className="text-slate-500">{scannedStudent?.section}</p>
                 </div>
+                
                 <div className="p-8 text-center space-y-4">
-                   {isApproved ? (
+                   {isDeparted ? (
+                      <>
+                        <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-2">
+                           <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                           </svg>
+                        </div>
+                        <h4 className="text-lg font-bold text-blue-700">Departure Confirmed</h4>
+                        <p className="text-slate-600 leading-relaxed">
+                          <span className="font-semibold">{scannedStudent?.name}</span> is now on their way to the Guidance Office.
+                        </p>
+                      </>
+                   ) : isApproved ? (
                       <>
                         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-2">
                            <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -510,12 +562,44 @@ export const App: React.FC = () => {
                    )}
                 </div>
              </div>
-            <button 
-              onClick={resetFlow}
-              className="w-full py-4 bg-white text-purple-600 font-semibold border border-purple-100 shadow-sm hover:bg-purple-50 rounded-xl transition-colors"
-            >
-              Verify Next Student
-            </button>
+            
+            {/* Actions */}
+            {isDeparted || (!isApproved && !isDeparted) ? (
+               <button 
+                 onClick={resetFlow}
+                 className="w-full py-4 bg-white text-purple-600 font-semibold border border-purple-100 shadow-sm hover:bg-purple-50 rounded-xl transition-colors"
+               >
+                 Verify Next Student
+               </button>
+            ) : (
+               <div className="w-full space-y-3">
+                 <button 
+                   onClick={confirmDeparture}
+                   disabled={isConfirmingDeparture}
+                   className="w-full py-4 bg-purple-600 text-white font-bold rounded-xl shadow-lg shadow-purple-200 hover:bg-purple-700 flex items-center justify-center gap-2"
+                 >
+                   {isConfirmingDeparture ? (
+                     <>
+                        <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
+                        Updating...
+                     </>
+                   ) : (
+                     <>
+                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 9l3 3m0 0l-3 3m3-3H8m13 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                       </svg>
+                       Confirm Student Departure
+                     </>
+                   )}
+                 </button>
+                 <button 
+                    onClick={resetFlow}
+                    className="w-full py-3 text-slate-400 font-medium text-sm hover:text-purple-600 transition-colors"
+                  >
+                    Skip & Verify Next
+                  </button>
+               </div>
+            )}
           </div>
         );
 
