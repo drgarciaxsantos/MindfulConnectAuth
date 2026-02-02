@@ -396,16 +396,48 @@ export const App: React.FC = () => {
         );
 
       case AppStep.RESULT:
+        const isApproved = activeAppointment?.status === 'ACCEPTED' || activeAppointment?.status === 'CONFIRMED';
+        
         return (
-          <div className="w-full flex flex-col items-center space-y-6">
-            {activeAppointment && <StatusBadge status={activeAppointment.status as any} />}
-            <div className="bg-white w-full p-6 rounded-2xl shadow-lg border border-purple-50 text-center">
-              <h3 className="text-2xl font-bold text-slate-900 mb-1">{scannedStudent?.name}</h3>
-              <p className="text-slate-500 mb-6">{scannedStudent?.section}</p>
-            </div>
+          <div className="w-full flex flex-col items-center space-y-6 animate-fade-in">
+             {activeAppointment && <StatusBadge status={activeAppointment.status as any} />}
+             
+             <div className="bg-white w-full rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
+                <div className={`p-6 text-center border-b ${isApproved ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
+                    <h3 className="text-2xl font-bold text-slate-900 mb-1">{scannedStudent?.name}</h3>
+                    <p className="text-slate-500">{scannedStudent?.section}</p>
+                </div>
+                <div className="p-8 text-center space-y-4">
+                   {isApproved ? (
+                      <>
+                        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-2">
+                           <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                           </svg>
+                        </div>
+                        <h4 className="text-lg font-bold text-green-700">Authorization Granted</h4>
+                        <p className="text-slate-600 leading-relaxed">
+                          <span className="font-semibold">{scannedStudent?.name}</span> may exit the class and proceed to the <span className="font-semibold text-purple-700">Guidance Office</span> immediately.
+                        </p>
+                      </>
+                   ) : (
+                      <>
+                        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-2">
+                           <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                           </svg>
+                        </div>
+                         <h4 className="text-lg font-bold text-red-700">Authorization Denied</h4>
+                         <p className="text-slate-600 leading-relaxed">
+                           <span className="font-semibold">{scannedStudent?.name}</span> is not authorized to leave. Please return to class.
+                         </p>
+                      </>
+                   )}
+                </div>
+             </div>
             <button 
               onClick={resetFlow}
-              className="w-full py-4 text-purple-600 font-semibold hover:bg-purple-50 rounded-xl transition-colors"
+              className="w-full py-4 bg-white text-purple-600 font-semibold border border-purple-100 shadow-sm hover:bg-purple-50 rounded-xl transition-colors"
             >
               Verify Next Student
             </button>
