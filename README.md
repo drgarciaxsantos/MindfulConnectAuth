@@ -21,40 +21,37 @@ This document outlines the architecture, database requirements, and security pra
     *   Receives the notification.
     *   Updates the `appointments` table status to `ACCEPTED` or `DENIED`.
 
-## 2. Database Updates (Required)
+## 2. Managing Data
 
-You must run the following SQL to enable the NFC features. This creates a `teachers` table and adds NFC UID columns.
+### Adding More Teachers
+To add more teachers to the system, you must run an SQL Query in the Supabase Dashboard.
 
-```sql
--- Create Teachers Table (Verifiers)
-CREATE TABLE IF NOT EXISTS public.teachers (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name text NOT NULL,
-  nfc_uid text UNIQUE NOT NULL, -- Store the Serial or Payload Text here
-  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
--- Add NFC UID to Students
-ALTER TABLE public.students 
-ADD COLUMN IF NOT EXISTS nfc_uid text UNIQUE;
-
--- Enable Realtime for Appointments (if not already enabled)
--- In Supabase Dashboard: Replication > Source > public.appointments > Enable
-```
-
-### Sample Data for Testing
+1.  Open **Supabase Dashboard** > **SQL Editor**.
+2.  Run the following query:
 
 ```sql
 INSERT INTO public.teachers (name, nfc_uid)
-VALUES ('Mr. Guard Checkerson', 'TEACHER_TAG_001');
-
--- Update a student with a dummy NFC ID
-UPDATE public.students 
-SET nfc_uid = 'STUDENT_TAG_001' 
-WHERE student_id_number = '02000385842'; 
+VALUES 
+  ('New Teacher Name', '00:00:00:00:00:00:00'),
+  ('Another Teacher', '11:11:11:11:11:11:11')
+ON CONFLICT (nfc_uid) DO UPDATE 
+SET name = EXCLUDED.name;
 ```
 
-## 3. NFC Implementation Details
+### Adding Students & NFC Tags
+Similar to teachers, you can batch insert or update students:
+
+```sql
+UPDATE public.students 
+SET nfc_uid = 'STUDENT_TAG_ID' 
+WHERE student_id_number = '02000XXXXXX'; 
+```
+
+## 3. Database Setup (Full Reset)
+
+Run the file `db_setup.sql` in your SQL Editor to create all necessary tables and insert initial test data (Jem Palaganas, Will Byers, etc.).
+
+## 4. NFC Implementation Details
 
 ### UID Source
 The code supports two methods of reading tags:
@@ -73,7 +70,7 @@ The code supports two methods of reading tags:
 3.  **Tag Technology:** The tag is not NDEF formatted.
     *   *Fix:* Format tags using NDEF (standard for web/mobile).
 
-## 4. Security Best Practices
+## 5. Security Best Practices
 
 1.  **HTTPS is Mandatory:** Web NFC API does not exist on HTTP.
 2.  **No PIN/Password:** This system prioritizes speed. Security relies on the physical possession of the Teacher's NFC badge.

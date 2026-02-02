@@ -6,6 +6,29 @@ import { StatusBadge } from './components/StatusBadge';
 import { AppStep, Appointment, Student, Teacher } from './types';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
+// Helper to parse date/time strings from DB
+const parseDateTime = (dateStr: string, timeStr: string): Date | null => {
+  try {
+    // dateStr: YYYY-MM-DD
+    const [year, month, day] = dateStr.split('-').map(Number);
+    
+    // timeStr: HH:MM AM/PM
+    const [time, period] = timeStr.trim().split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+    
+    if (period.toUpperCase() === 'PM' && hours !== 12) {
+      hours += 12;
+    } else if (period.toUpperCase() === 'AM' && hours === 12) {
+      hours = 0;
+    }
+    
+    return new Date(year, month - 1, day, hours, minutes);
+  } catch (e) {
+    console.error("Date parsing error", e);
+    return null;
+  }
+};
+
 export const App: React.FC = () => {
   // State Machine
   const [step, setStep] = useState<AppStep>(AppStep.LOGIN);
@@ -161,6 +184,21 @@ export const App: React.FC = () => {
         console.log("No confirmed appointment found for student:", student.id);
         setStep(AppStep.NO_APPOINTMENT);
         return; 
+      }
+
+      // Check Time Window (15 minutes before)
+      const apptDate = parseDateTime(appt.date, appt.time);
+      if (apptDate) {
+        const now = new Date();
+        const diffMs = apptDate.getTime() - now.getTime();
+        const diffMinutes = diffMs / (1000 * 60);
+        
+        // If appointment is more than 15 minutes in the future, block it.
+        if (diffMinutes > 15) {
+             setActiveAppointment(appt);
+             setStep(AppStep.TOO_EARLY);
+             return;
+        }
       }
 
       // Found appointment
@@ -466,6 +504,30 @@ export const App: React.FC = () => {
           </div>
         );
         
+      case AppStep.TOO_EARLY:
+        return (
+          <div className="flex flex-col items-center text-center space-y-6">
+             <div className="w-24 h-24 rounded-full bg-orange-100 flex items-center justify-center border-4 border-orange-200 mb-2">
+                <svg className="w-12 h-12 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+             </div>
+             <div className="w-full bg-white p-6 rounded-2xl shadow-lg border border-orange-50">
+                <h3 className="text-xl font-bold text-slate-900 mb-1">{scannedStudent?.name}</h3>
+                <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 mt-4">
+                   <p className="text-orange-800 font-bold text-lg">Too Early</p>
+                   <p className="text-orange-700 text-sm mt-1">
+                     Appointment is at <span className="font-semibold">{activeAppointment?.time}</span>.<br/>
+                     Verification allowed 15 mins before.
+                   </p>
+                </div>
+             </div>
+              <button onClick={resetFlow} className="w-full py-4 text-orange-600 font-semibold hover:bg-orange-50 rounded-xl">
+               Verify Next Student
+             </button>
+          </div>
+        );
+
       case AppStep.ERROR:
         return (
            <div className="bg-red-50 w-full p-6 rounded-2xl border border-red-100 text-center">

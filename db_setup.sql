@@ -17,15 +17,15 @@ BEGIN
     END IF;
 END $$;
 
--- 2. Clean up conflicts and Insert specific Teacher ID
-DELETE FROM public.teachers WHERE nfc_uid = '04:84:c8:d1:2e:61:80';
-DELETE FROM public.teachers WHERE name = 'Authorized Gatekeeper';
-DELETE FROM public.teachers WHERE name = 'Jem Palaganas';
-
--- LINK JEM PALAGANAS
+-- 2. MANAGE TEACHERS (EDIT THIS SECTION TO ADD MORE)
+-- Format: ('Name', 'NFC_ID')
+-- Note: Use commas to separate multiple teachers. The last one should not have a comma.
 INSERT INTO public.teachers (name, nfc_uid)
-VALUES ('Jem Palaganas', '04:84:c8:d1:2e:61:80')
-ON CONFLICT (nfc_uid) DO UPDATE SET name = 'Jem Palaganas';
+VALUES 
+  ('Jem Palaganas', '04:84:c8:d1:2e:61:80'),
+  ('Example Teacher', '00:00:00:00:00:00:00') -- Replace this with a real tag or add more lines above
+ON CONFLICT (nfc_uid) DO UPDATE 
+SET name = EXCLUDED.name;
 
 -- 3. Create Students Table
 CREATE TABLE IF NOT EXISTS public.students (
