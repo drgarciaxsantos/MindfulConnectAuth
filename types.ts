@@ -34,7 +34,8 @@ export enum AppStep {
   RESULT = 'RESULT', // Final result shown
   ERROR = 'ERROR',
   NO_APPOINTMENT = 'NO_APPOINTMENT', // "No authorization required"
-  TOO_EARLY = 'TOO_EARLY' // New Step: Too early to verify
+  TOO_EARLY = 'TOO_EARLY', // New Step: Too early to verify
+  EXPIRED = 'EXPIRED' // New Step: Appointment passed
 }
 
 export interface VerificationResult {

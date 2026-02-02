@@ -196,7 +196,7 @@ export const App: React.FC = () => {
         return; 
       }
 
-      // Check Time Window (15 minutes before)
+      // Check Time Window
       const apptDate = parseDateTime(appt.date, appt.time);
       
       if (!apptDate) {
@@ -218,6 +218,15 @@ export const App: React.FC = () => {
            setActiveAppointment(appt);
            setMinutesUntilAppt(diffMinutes);
            setStep(AppStep.TOO_EARLY);
+           return;
+      }
+      
+      // If appointment is more than 30 minutes in the past, consider it expired/missed.
+      // e.g., if diffMinutes is -31, it is 31 minutes ago.
+      if (diffMinutes < -30) {
+           setActiveAppointment(appt);
+           setMinutesUntilAppt(Math.abs(diffMinutes)); // Store how late they are
+           setStep(AppStep.EXPIRED);
            return;
       }
 
@@ -522,6 +531,7 @@ export const App: React.FC = () => {
                <h3 className="text-xl font-bold text-slate-900 mb-1">{scannedStudent?.name}</h3>
                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 mt-4">
                   <p className="text-slate-800 font-bold text-lg">No confirmed appointment.</p>
+                  <p className="text-slate-500 text-sm mt-1">Student has no upcoming appointments approved by a counselor.</p>
                </div>
             </div>
              <button onClick={resetFlow} className="w-full py-4 text-purple-600 font-semibold hover:bg-purple-50 rounded-xl">
@@ -554,6 +564,60 @@ export const App: React.FC = () => {
                 </div>
              </div>
               <button onClick={resetFlow} className="w-full py-4 text-orange-600 font-semibold hover:bg-orange-50 rounded-xl">
+               Verify Next Student
+             </button>
+          </div>
+        );
+
+      case AppStep.EXPIRED:
+        // Format relative time (e.g. "45 minutes ago")
+        const lateMinutes = minutesUntilAppt; // Stored in state as positive number
+        const hoursLate = Math.floor(lateMinutes / 60);
+        const minsLate = lateMinutes % 60;
+        let timeAgoString = `${lateMinutes} minutes late`;
+        if (hoursLate > 0) {
+            timeAgoString = `${hoursLate} hour${hoursLate > 1 ? 's' : ''} ${minsLate} min late`;
+        }
+
+        return (
+          <div className="flex flex-col items-center text-center space-y-6">
+             <div className="w-24 h-24 rounded-full bg-red-50 flex items-center justify-center border-4 border-red-100 mb-2">
+                <svg className="w-12 h-12 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+             </div>
+             <div className="w-full bg-white p-6 rounded-2xl shadow-lg border border-red-100">
+                <h3 className="text-xl font-bold text-slate-900 mb-1">{scannedStudent?.name}</h3>
+                <div className="bg-red-50 p-4 rounded-xl border border-red-100 mt-4 text-left">
+                   <div className="flex items-center gap-2 mb-3">
+                       <span className="bg-red-200 text-red-800 text-xs font-bold px-2 py-1 rounded">EXPIRED</span>
+                       <span className="text-red-700 font-bold text-lg">Appointment Missed</span>
+                   </div>
+                   
+                   <div className="space-y-2 border-t border-red-200 pt-3">
+                       <div className="flex justify-between text-sm">
+                          <span className="text-red-800/70">Scheduled Date:</span>
+                          <span className="font-semibold text-red-900">{activeAppointment?.date}</span>
+                       </div>
+                       <div className="flex justify-between text-sm">
+                          <span className="text-red-800/70">Scheduled Time:</span>
+                          <span className="font-semibold text-red-900">{activeAppointment?.time}</span>
+                       </div>
+                       <div className="flex justify-between text-sm bg-red-100 p-2 rounded">
+                          <span className="text-red-800 font-medium">Status:</span>
+                          <span className="font-bold text-red-900">{timeAgoString}</span>
+                       </div>
+                   </div>
+
+                   <p className="text-red-600/80 text-xs mt-3 italic text-center">
+                     Access denied. Valid window has passed.
+                   </p>
+                </div>
+             </div>
+              <button 
+                onClick={resetFlow} 
+                className="w-full py-4 text-red-600 font-semibold hover:bg-red-50 rounded-xl transition-colors border-2 border-transparent hover:border-red-100"
+              >
                Verify Next Student
              </button>
           </div>
