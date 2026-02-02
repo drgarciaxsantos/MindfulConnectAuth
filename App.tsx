@@ -33,7 +33,6 @@ export const App: React.FC = () => {
     setIsConnecting(true);
     setErrorMsg(null);
 
-    // 1. Check Config String Validity
     const configCheck = checkSupabaseConfig();
     if (!configCheck.valid) {
       setErrorMsg(configCheck.message || "Database configuration error");
@@ -42,18 +41,16 @@ export const App: React.FC = () => {
       return;
     }
 
-    // 2. Test Actual Connectivity
     const conn = await testConnection();
     if (!conn.success) {
-      setErrorMsg(`Connection Error: ${conn.message}. (Ensure you are online and API Key is correct)`);
+      setErrorMsg(`Connection Error: ${conn.message}.`);
       setStep(AppStep.ERROR);
       setIsConnecting(false);
       return;
     }
 
-    // 3. Check NFC compatibility
     if (!checkNfcSupport()) {
-      setErrorMsg("Web NFC is not supported on this browser. Use Chrome on Android.");
+      setErrorMsg("No NFC support detected. Please use Chrome on Android.");
     }
 
     setIsConnecting(false);
@@ -65,11 +62,15 @@ export const App: React.FC = () => {
     setErrorMsg(null);
     if (stopScanRef.current) stopScanRef.current();
 
-    const stop = await scanNfcTag(
-      (serial, payload) => handleNfcRead(mode, serial, payload),
-      (err) => setErrorMsg(err)
-    );
-    stopScanRef.current = stop;
+    if (checkNfcSupport()) {
+      const stop = await scanNfcTag(
+        (serial, payload) => handleNfcRead(mode, serial, payload),
+        (err) => setErrorMsg(err)
+      );
+      stopScanRef.current = stop;
+    } else {
+      setErrorMsg("Web NFC not supported on this device.");
+    }
   };
 
   const stopNfcScan = () => {
@@ -82,9 +83,7 @@ export const App: React.FC = () => {
   const handleNfcRead = async (mode: 'TEACHER' | 'STUDENT', serial: string, payload: string) => {
     const cleanPayload = payload ? payload.replace(/\u0000/g, '').trim() : '';
     const cleanSerial = serial ? serial.trim() : '';
-    
-    const rawValue = cleanPayload || cleanSerial;
-    const nfcValue = rawValue.toLowerCase();
+    const nfcValue = (cleanPayload || cleanSerial).toLowerCase();
 
     if (!nfcValue) {
       setErrorMsg("Empty NFC Tag read. Please try again.");
@@ -131,9 +130,7 @@ export const App: React.FC = () => {
     try {
       console.log(`Verifying Student with UID: ${nfcUid}`);
 
-      // 1. Find the Student
       let query = supabase.from('students').select('*');
-      
       if (nfcUid.includes(':')) {
          query = query.ilike('nfc_uid', nfcUid);
       } else {
@@ -149,7 +146,6 @@ export const App: React.FC = () => {
       }
       setScannedStudent(student);
 
-      // 2. Check for CONFIRMED/ACCEPTED appointments.
       const { data: appt, error: apptError } = await supabase
         .from('appointments')
         .select('*')
@@ -161,15 +157,13 @@ export const App: React.FC = () => {
 
       if (apptError) throw apptError;
 
-      // Logic Branch: NO confirmed appointment found
       if (!appt) {
         console.log("No confirmed appointment found for student:", student.id);
         setStep(AppStep.NO_APPOINTMENT);
         return; 
       }
 
-      // Logic Branch: Found valid appointment. 
-      // PAUSE HERE. Do NOT send notification yet. Show details to teacher.
+      // Found appointment
       setActiveAppointment(appt);
       setStep(AppStep.CONFIRM_DETAILS);
 
@@ -178,40 +172,37 @@ export const App: React.FC = () => {
     }
   };
 
-  /**
-   * Called when the Teacher clicks "Send Verification" button.
-   * This updates the status and sends the notification.
-   */
   const initiateGateRequest = async () => {
     if (!activeAppointment || !scannedStudent) return;
     
     setStep(AppStep.PROCESSING);
 
     try {
-      // 1. Update status to VERIFYING (Indicates they are at the gate)
+      // 1. Update status to VERIFYING
       const { error: updateError } = await supabase
         .from('appointments')
         .update({ status: 'VERIFYING' })
         .eq('id', activeAppointment.id);
         
-      if (updateError) throw updateError;
-      
-      // Update local state
-      const updatedAppt = { ...activeAppointment, status: 'VERIFYING' as const };
-      setActiveAppointment(updatedAppt);
+      if (updateError) {
+        console.error("Status update error", updateError);
+      } else {
+        const updatedAppt = { ...activeAppointment, status: 'VERIFYING' as const };
+        setActiveAppointment(updatedAppt);
+      }
 
-      // 2. Send Notification to Counselor
+      // 2. Send Explicit Notification
       const { error: notifError } = await supabase
         .from('notifications')
         .insert({
           user_id: activeAppointment.counselor_id,
-          message: `GATE REQUEST: ${scannedStudent.name} is at the gate for their ${activeAppointment.time} appointment.`,
+          message: `GATE_REQUEST: Student ${scannedStudent.name} is at the gate for ${activeAppointment.time} appointment.`,
           is_read: false
         });
 
       if (notifError) console.error("Notification failed", notifError);
 
-      // 3. Move to Waiting Screen and Subscribe
+      // 3. Wait
       setStep(AppStep.WAITING_APPROVAL);
       subscribeToAppointment(activeAppointment.id);
 
@@ -219,8 +210,6 @@ export const App: React.FC = () => {
       handleError(err);
     }
   };
-
-  // --- Realtime ---
 
   const subscribeToAppointment = (apptId: string) => {
     unsubscribeRealtime();
@@ -237,8 +226,11 @@ export const App: React.FC = () => {
         (payload) => {
           const newStatus = payload.new.status;
           
-          // Allow CONFIRMED as a success state along with ACCEPTED
-          if (newStatus === 'ACCEPTED' || newStatus === 'DENIED' || newStatus === 'CONFIRMED') {
+          if (newStatus === 'ACCEPTED' || newStatus === 'CONFIRMED') {
+            setActiveAppointment(payload.new as Appointment);
+            setStep(AppStep.RESULT);
+            unsubscribeRealtime();
+          } else if (newStatus === 'DENIED') {
             setActiveAppointment(payload.new as Appointment);
             setStep(AppStep.RESULT);
             unsubscribeRealtime();
@@ -269,13 +261,13 @@ export const App: React.FC = () => {
     console.error("App Error:", err);
     let message = err.message || "Unknown Error";
     if (message.includes("Failed to fetch")) {
-      message = "Network Error: Cannot reach database. Check internet connection.";
+      message = "Network Error: Cannot reach database.";
     }
     setErrorMsg(message);
     setStep(AppStep.ERROR);
   };
 
-  // --- Render Helpers ---
+  // --- Render ---
 
   const renderContent = () => {
     if (isConnecting) {
@@ -298,14 +290,16 @@ export const App: React.FC = () => {
             </div>
             <div className="text-center">
               <p className="text-purple-900 font-medium text-lg">Teacher Login</p>
-              <p className="text-slate-500 mt-2">Tap your NFC badge to verify identity</p>
+              <p className="text-slate-500 mt-2">Tap NFC badge to login</p>
             </div>
-            <button 
-              onClick={() => startNfcScan('TEACHER')}
-              className="bg-purple-600 text-white px-8 py-3 rounded-xl font-semibold shadow-lg shadow-purple-200 hover:bg-purple-700 transition-colors w-full"
-            >
-              Start Scan
-            </button>
+            <div className="w-full space-y-3">
+              <button 
+                onClick={() => startNfcScan('TEACHER')}
+                className="bg-purple-600 text-white px-8 py-3 rounded-xl font-semibold shadow-lg shadow-purple-200 hover:bg-purple-700 w-full"
+              >
+                Scan with Phone NFC
+              </button>
+            </div>
           </div>
         );
 
@@ -345,7 +339,6 @@ export const App: React.FC = () => {
                 <h3 className="text-2xl font-bold text-slate-900">{scannedStudent?.name}</h3>
                 <p className="text-slate-500 text-sm mt-1">{scannedStudent?.section}</p>
              </div>
-
              <div className="space-y-4">
                 <div className="bg-purple-50 p-4 rounded-xl space-y-3">
                    <div className="flex justify-between items-center border-b border-purple-200 pb-2">
@@ -362,11 +355,10 @@ export const App: React.FC = () => {
                    </div>
                 </div>
              </div>
-
              <div className="flex flex-col gap-3 pt-2">
                 <button 
                   onClick={initiateGateRequest}
-                  className="w-full py-4 bg-purple-600 text-white font-bold rounded-xl shadow-lg shadow-purple-200 hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+                  className="w-full py-4 bg-purple-600 text-white font-bold rounded-xl shadow-lg shadow-purple-200 hover:bg-purple-700 flex items-center justify-center gap-2"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -380,32 +372,6 @@ export const App: React.FC = () => {
                   Cancel
                 </button>
              </div>
-          </div>
-        );
-
-      case AppStep.NO_APPOINTMENT:
-        return (
-          <div className="flex flex-col items-center text-center space-y-6">
-             <div className="w-24 h-24 rounded-full bg-slate-100 flex items-center justify-center border-4 border-slate-200 mb-2">
-                <svg className="w-12 h-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-             </div>
-            <div className="w-full bg-white p-6 rounded-2xl shadow-lg border border-purple-50">
-               <h3 className="text-xl font-bold text-slate-900 mb-1">{scannedStudent?.name}</h3>
-               <p className="text-slate-500 mb-6">{scannedStudent?.section}</p>
-               
-               <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  <p className="text-slate-800 font-bold text-lg">No confirmed appointment.</p>
-                  <p className="text-slate-500 text-sm mt-1">No authorization available.</p>
-               </div>
-            </div>
-             <button 
-              onClick={resetFlow}
-              className="w-full py-4 text-purple-600 font-semibold hover:bg-purple-50 rounded-xl transition-colors"
-            >
-              Verify Next Student
-            </button>
           </div>
         );
 
@@ -433,23 +399,10 @@ export const App: React.FC = () => {
         return (
           <div className="w-full flex flex-col items-center space-y-6">
             {activeAppointment && <StatusBadge status={activeAppointment.status as any} />}
-            
             <div className="bg-white w-full p-6 rounded-2xl shadow-lg border border-purple-50 text-center">
               <h3 className="text-2xl font-bold text-slate-900 mb-1">{scannedStudent?.name}</h3>
               <p className="text-slate-500 mb-6">{scannedStudent?.section}</p>
-              
-              <div className="space-y-3 text-left bg-purple-50 p-4 rounded-xl">
-                 <div className="flex justify-between">
-                    <span className="text-xs text-purple-400 uppercase font-bold">Time</span>
-                    <span className="text-sm font-medium text-purple-900">{activeAppointment?.time}</span>
-                 </div>
-                 <div className="flex justify-between">
-                    <span className="text-xs text-purple-400 uppercase font-bold">Reason</span>
-                    <span className="text-sm font-medium text-purple-900">{activeAppointment?.reason}</span>
-                 </div>
-              </div>
             </div>
-
             <button 
               onClick={resetFlow}
               className="w-full py-4 text-purple-600 font-semibold hover:bg-purple-50 rounded-xl transition-colors"
@@ -458,27 +411,33 @@ export const App: React.FC = () => {
             </button>
           </div>
         );
+
+      case AppStep.NO_APPOINTMENT:
+        return (
+          <div className="flex flex-col items-center text-center space-y-6">
+             <div className="w-24 h-24 rounded-full bg-slate-100 flex items-center justify-center border-4 border-slate-200 mb-2">
+                <svg className="w-12 h-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+             </div>
+            <div className="w-full bg-white p-6 rounded-2xl shadow-lg border border-purple-50">
+               <h3 className="text-xl font-bold text-slate-900 mb-1">{scannedStudent?.name}</h3>
+               <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 mt-4">
+                  <p className="text-slate-800 font-bold text-lg">No confirmed appointment.</p>
+               </div>
+            </div>
+             <button onClick={resetFlow} className="w-full py-4 text-purple-600 font-semibold hover:bg-purple-50 rounded-xl">
+              Verify Next Student
+            </button>
+          </div>
+        );
         
       case AppStep.ERROR:
         return (
-          <div className="bg-red-50 w-full p-6 rounded-2xl border border-red-100 text-center">
-            <div className="text-red-500 text-5xl mb-4">!</div>
-            <h3 className="text-red-800 font-bold text-lg mb-2">Connection Error</h3>
+           <div className="bg-red-50 w-full p-6 rounded-2xl border border-red-100 text-center">
+            <h3 className="text-red-800 font-bold text-lg mb-2">Error</h3>
             <p className="text-red-600 mb-6 font-mono text-sm break-all">{errorMsg}</p>
-            <div className="flex flex-col gap-2">
-              <button 
-                onClick={() => window.location.reload()}
-                className="bg-purple-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-purple-700"
-              >
-                Reload App
-              </button>
-              <button 
-                onClick={() => { setStep(AppStep.LOGIN); setErrorMsg(null); }}
-                className="text-slate-500 text-sm hover:underline"
-              >
-                Back to Login
-              </button>
-            </div>
+            <button onClick={() => window.location.reload()} className="bg-purple-600 text-white px-6 py-2 rounded-lg">Reload</button>
           </div>
         );
     }
