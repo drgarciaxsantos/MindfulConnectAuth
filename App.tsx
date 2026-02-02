@@ -191,12 +191,14 @@ export const App: React.FC = () => {
         setActiveAppointment(updatedAppt);
       }
 
-      // 2. Send Explicit Notification
+      // 2. Send Explicit Notification with Teacher Name
+      const teacherName = teacher?.name || "Gatekeeper";
+      
       const { error: notifError } = await supabase
         .from('notifications')
         .insert({
           user_id: activeAppointment.counselor_id,
-          message: `GATE_REQUEST: Student ${scannedStudent.name} is at the gate for ${activeAppointment.time} appointment.`,
+          message: `GATE_REQUEST: ${teacherName} asked for the verification of ${scannedStudent.name}.`,
           is_read: false
         });
 
