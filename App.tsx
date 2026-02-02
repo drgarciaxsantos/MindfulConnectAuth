@@ -9,17 +9,26 @@ import { RealtimeChannel } from '@supabase/supabase-js';
 // Helper to parse date/time strings from DB
 const parseDateTime = (dateStr: string, timeStr: string): Date | null => {
   try {
+    if (!dateStr || !timeStr) return null;
+
     // dateStr: YYYY-MM-DD
     const [year, month, day] = dateStr.split('-').map(Number);
     
-    // timeStr: HH:MM AM/PM
-    const [time, period] = timeStr.trim().split(' ');
-    let [hours, minutes] = time.split(':').map(Number);
+    // Use regex to robustly handle "09:00 AM", "9:00AM", "09:00", etc.
+    const match = timeStr.match(/(\d{1,2}):(\d{2})\s*([AaPp][Mm])?/i);
+    if (!match) return null;
+
+    let [_, hStr, mStr, period] = match;
+    let hours = parseInt(hStr, 10);
+    const minutes = parseInt(mStr, 10);
     
-    if (period.toUpperCase() === 'PM' && hours !== 12) {
-      hours += 12;
-    } else if (period.toUpperCase() === 'AM' && hours === 12) {
-      hours = 0;
+    if (period) {
+      period = period.toUpperCase();
+      if (period === 'PM' && hours !== 12) {
+        hours += 12;
+      } else if (period === 'AM' && hours === 12) {
+        hours = 0;
+      }
     }
     
     return new Date(year, month - 1, day, hours, minutes);
@@ -39,6 +48,7 @@ export const App: React.FC = () => {
   const [teacher, setTeacher] = useState<Teacher | null>(null);
   const [scannedStudent, setScannedStudent] = useState<Student | null>(null);
   const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
+  const [minutesUntilAppt, setMinutesUntilAppt] = useState<number>(0);
   
   // Refs for cleanup
   const stopScanRef = useRef<(() => void) | null>(null);
@@ -188,17 +198,27 @@ export const App: React.FC = () => {
 
       // Check Time Window (15 minutes before)
       const apptDate = parseDateTime(appt.date, appt.time);
-      if (apptDate) {
-        const now = new Date();
-        const diffMs = apptDate.getTime() - now.getTime();
-        const diffMinutes = diffMs / (1000 * 60);
-        
-        // If appointment is more than 15 minutes in the future, block it.
-        if (diffMinutes > 15) {
-             setActiveAppointment(appt);
-             setStep(AppStep.TOO_EARLY);
-             return;
-        }
+      
+      if (!apptDate) {
+         // Fail Safe: If we can't parse the date, don't allow access blindly.
+         console.error("Failed to parse appointment date/time:", appt.date, appt.time);
+         setErrorMsg("Invalid Appointment Date Format. Please contact Admin.");
+         setStep(AppStep.ERROR);
+         return;
+      }
+
+      const now = new Date();
+      const diffMs = apptDate.getTime() - now.getTime();
+      const diffMinutes = Math.floor(diffMs / (1000 * 60));
+      
+      console.log("Time Check:", { appt: apptDate, now, diffMinutes });
+
+      // If appointment is more than 15 minutes in the future, block it.
+      if (diffMinutes > 15) {
+           setActiveAppointment(appt);
+           setMinutesUntilAppt(diffMinutes);
+           setStep(AppStep.TOO_EARLY);
+           return;
       }
 
       // Found appointment
@@ -517,7 +537,12 @@ export const App: React.FC = () => {
                 <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 mt-4">
                    <p className="text-orange-800 font-bold text-lg">Too Early</p>
                    <p className="text-orange-700 text-sm mt-1">
-                     Appointment is at <span className="font-semibold">{activeAppointment?.time}</span>.<br/>
+                     Appointment is at <span className="font-semibold">{activeAppointment?.time}</span>.
+                   </p>
+                   <p className="text-orange-700 text-sm mt-2 font-medium">
+                     Please wait {minutesUntilAppt - 15} more minute(s).
+                   </p>
+                   <p className="text-xs text-slate-400 mt-2">
                      Verification allowed 15 mins before.
                    </p>
                 </div>
