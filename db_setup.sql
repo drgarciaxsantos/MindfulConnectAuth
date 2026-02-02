@@ -23,6 +23,7 @@ END $$;
 INSERT INTO public.teachers (name, nfc_uid)
 VALUES 
   ('Jem Palaganas', '04:84:c8:d1:2e:61:80'),
+  ('Security Guard', '04:C3:EF:D1:2E:61:80'),
   ('Example Teacher', '00:00:00:00:00:00:00') -- Replace this with a real tag or add more lines above
 ON CONFLICT (nfc_uid) DO UPDATE 
 SET name = EXCLUDED.name;

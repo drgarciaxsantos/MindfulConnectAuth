@@ -134,7 +134,7 @@ export const App: React.FC = () => {
 
   const authenticateTeacher = async (nfcUid: string) => {
     try {
-      console.log(`Authenticating Teacher with UID: ${nfcUid}`);
+      console.log(`Authenticating Staff with UID: ${nfcUid}`);
       
       const { data, error } = await supabase
         .from('teachers')
@@ -249,7 +249,7 @@ export const App: React.FC = () => {
         setActiveAppointment(updatedAppt);
       }
 
-      // 2. Send Explicit Notification with Teacher Name
+      // 2. Send Explicit Notification with Teacher/Guard Name
       const teacherName = teacher?.name || "Gatekeeper";
       
       const { error: notifError } = await supabase
@@ -349,8 +349,8 @@ export const App: React.FC = () => {
               </svg>
             </div>
             <div className="text-center">
-              <p className="text-purple-900 font-medium text-lg">Teacher Login</p>
-              <p className="text-slate-500 mt-2">Tap NFC badge to login</p>
+              <p className="text-purple-900 font-medium text-lg">Staff Login</p>
+              <p className="text-slate-500 mt-2">Tap Teacher or Guard NFC badge</p>
             </div>
             <div className="w-full space-y-3">
               <button 
@@ -457,6 +457,7 @@ export const App: React.FC = () => {
 
       case AppStep.RESULT:
         const isApproved = activeAppointment?.status === 'ACCEPTED' || activeAppointment?.status === 'CONFIRMED';
+        const isGuard = teacher?.name?.toLowerCase().includes('guard');
         
         return (
           <div className="w-full flex flex-col items-center space-y-6 animate-fade-in">
@@ -477,7 +478,12 @@ export const App: React.FC = () => {
                         </div>
                         <h4 className="text-lg font-bold text-green-700">Authorization Granted</h4>
                         <p className="text-slate-600 leading-relaxed">
-                          <span className="font-semibold">{scannedStudent?.name}</span> may exit the class and proceed to the <span className="font-semibold text-purple-700">Guidance Office</span> immediately.
+                          <span className="font-semibold">{scannedStudent?.name}</span>
+                          {isGuard ? (
+                             <> may <span className="font-bold text-green-700">enter the campus</span> and proceed to the <span className="font-semibold text-purple-700">Guidance Office</span>.</>
+                          ) : (
+                             <> may <span className="font-bold text-green-700">exit the class</span> and proceed to the <span className="font-semibold text-purple-700">Guidance Office</span> immediately.</>
+                          )}
                         </p>
                       </>
                    ) : (
