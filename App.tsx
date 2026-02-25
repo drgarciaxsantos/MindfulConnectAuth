@@ -3,6 +3,7 @@ import { supabase, checkSupabaseConfig, testConnection } from './supabase';
 import { checkNfcSupport, scanNfcTag } from './nfcService';
 import { Layout } from './components/Layout';
 import { StatusBadge } from './components/StatusBadge';
+import { GatekeeperLogo } from './components/GatekeeperLogo';
 import { AppStep, Appointment, Student, Teacher } from './types';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
@@ -49,7 +50,6 @@ export const App: React.FC = () => {
   const [scannedStudent, setScannedStudent] = useState<Student | null>(null);
   const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
   const [minutesUntilAppt, setMinutesUntilAppt] = useState<number>(0);
-  const [isConfirmingDeparture, setIsConfirmingDeparture] = useState(false);
   
   // Refs for cleanup
   const stopScanRef = useRef<(() => void) | null>(null);
@@ -281,41 +281,6 @@ export const App: React.FC = () => {
     }
   };
 
-  const confirmDeparture = async () => {
-    if (!activeAppointment || !scannedStudent) return;
-    setIsConfirmingDeparture(true);
-
-    try {
-      const teacherName = teacher?.name || "Staff";
-
-      // 1. Update Appointment Status to DEPARTED
-      const { error: updateError } = await supabase
-        .from('appointments')
-        .update({ status: 'DEPARTED' })
-        .eq('id', activeAppointment.id);
-
-      if (updateError) throw updateError;
-
-      // 2. Send Notification to Counselor
-      const { error: notifError } = await supabase
-        .from('notifications')
-        .insert({
-          user_id: activeAppointment.counselor_id,
-          message: `GATE_UPDATE: ${teacherName} confirmed that ${scannedStudent.name} is on their way to the Guidance Office.`,
-          is_read: false
-        });
-      
-      if (notifError) console.error("Notification failed", notifError);
-
-      // 3. Update Local State
-      setActiveAppointment({ ...activeAppointment, status: 'DEPARTED' });
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setIsConfirmingDeparture(false);
-    }
-  };
-
   const subscribeToAppointment = (apptId: string) => {
     unsubscribeRealtime();
 
@@ -359,7 +324,6 @@ export const App: React.FC = () => {
     setActiveAppointment(null);
     setErrorMsg(null);
     setStep(AppStep.SCAN_STUDENT);
-    setIsConfirmingDeparture(false);
     unsubscribeRealtime();
   };
 
@@ -389,20 +353,23 @@ export const App: React.FC = () => {
       case AppStep.LOGIN:
         return (
           <div className="flex flex-col items-center space-y-8 animate-fade-in">
-            <div className="w-48 h-48 rounded-full bg-purple-100 flex items-center justify-center animate-pulse border-4 border-purple-200">
-              <svg className="w-24 h-24 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M12 12a1 1 0 100-2 1 1 0 000 2z" />
-              </svg>
+            {/* Visual Mark - Gradient Purple Shield */}
+            <div className="w-56 h-56 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center animate-pulse shadow-2xl shadow-purple-200 border-4 border-white ring-4 ring-purple-100">
+              <GatekeeperLogo className="w-28 h-28 text-white" />
             </div>
+            
             <div className="text-center">
-              <p className="text-purple-900 font-medium text-lg">Staff Login</p>
-              <p className="text-slate-500 mt-2">Tap Teacher or Guard NFC badge</p>
+              <p className="text-purple-900 font-bold text-xl tracking-tight">Staff Login</p>
+              <p className="text-slate-500 mt-2 text-sm">Tap NFC badge to begin session</p>
             </div>
             <div className="w-full space-y-3">
               <button 
                 onClick={() => startNfcScan('TEACHER')}
-                className="bg-purple-600 text-white px-8 py-3 rounded-xl font-semibold shadow-lg shadow-purple-200 hover:bg-purple-700 w-full"
+                className="bg-purple-600 text-white px-8 py-4 rounded-xl font-bold shadow-lg shadow-purple-200 hover:bg-purple-700 w-full flex justify-center items-center gap-2 transition-all"
               >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.2-2.858.59-4.18" />
+                </svg>
                 Scan with Phone NFC
               </button>
             </div>
@@ -504,7 +471,6 @@ export const App: React.FC = () => {
       case AppStep.RESULT:
         const status = activeAppointment?.status;
         const isApproved = status === 'ACCEPTED' || status === 'CONFIRMED';
-        const isDeparted = status === 'DEPARTED';
         const isGuard = teacher?.name?.toLowerCase().includes('guard');
         
         return (
@@ -512,25 +478,13 @@ export const App: React.FC = () => {
              {activeAppointment && <StatusBadge status={activeAppointment.status as any} />}
              
              <div className="bg-white w-full rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
-                <div className={`p-6 text-center border-b ${isApproved || isDeparted ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
+                <div className={`p-6 text-center border-b ${isApproved ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
                     <h3 className="text-2xl font-bold text-slate-900 mb-1">{scannedStudent?.name}</h3>
                     <p className="text-slate-500">{scannedStudent?.section}</p>
                 </div>
                 
                 <div className="p-8 text-center space-y-4">
-                   {isDeparted ? (
-                      <>
-                        <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-2">
-                           <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                           </svg>
-                        </div>
-                        <h4 className="text-lg font-bold text-blue-700">Departure Confirmed</h4>
-                        <p className="text-slate-600 leading-relaxed">
-                          <span className="font-semibold">{scannedStudent?.name}</span> is now on their way to the Guidance Office.
-                        </p>
-                      </>
-                   ) : isApproved ? (
+                   {isApproved ? (
                       <>
                         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-2">
                            <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -564,42 +518,12 @@ export const App: React.FC = () => {
              </div>
             
             {/* Actions */}
-            {isDeparted || (!isApproved && !isDeparted) ? (
-               <button 
-                 onClick={resetFlow}
-                 className="w-full py-4 bg-white text-purple-600 font-semibold border border-purple-100 shadow-sm hover:bg-purple-50 rounded-xl transition-colors"
-               >
-                 Verify Next Student
-               </button>
-            ) : (
-               <div className="w-full space-y-3">
-                 <button 
-                   onClick={confirmDeparture}
-                   disabled={isConfirmingDeparture}
-                   className="w-full py-4 bg-purple-600 text-white font-bold rounded-xl shadow-lg shadow-purple-200 hover:bg-purple-700 flex items-center justify-center gap-2"
-                 >
-                   {isConfirmingDeparture ? (
-                     <>
-                        <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
-                        Updating...
-                     </>
-                   ) : (
-                     <>
-                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 9l3 3m0 0l-3 3m3-3H8m13 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                       </svg>
-                       Confirm Student Departure
-                     </>
-                   )}
-                 </button>
-                 <button 
-                    onClick={resetFlow}
-                    className="w-full py-3 text-slate-400 font-medium text-sm hover:text-purple-600 transition-colors"
-                  >
-                    Skip & Verify Next
-                  </button>
-               </div>
-            )}
+            <button 
+              onClick={resetFlow}
+              className="w-full py-4 bg-white text-purple-600 font-semibold border border-purple-100 shadow-sm hover:bg-purple-50 rounded-xl transition-colors"
+            >
+              Verify Next Student
+            </button>
           </div>
         );
 

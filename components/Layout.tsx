@@ -1,4 +1,5 @@
 import React from 'react';
+import { GatekeeperLogo } from './GatekeeperLogo';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -12,9 +13,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, title, teacherName, on
     <div className="min-h-screen flex flex-col items-center bg-purple-50">
       <header className="w-full bg-white shadow-sm border-b border-purple-100 p-4 sticky top-0 z-10">
         <div className="max-w-md mx-auto flex justify-between items-center">
-          <h1 className="text-xl font-bold text-purple-900 tracking-tight">
-            Mindful<span className="text-purple-600">Connect</span>
-          </h1>
+          <div className="flex items-center gap-2">
+            <GatekeeperLogo className="w-8 h-8 text-purple-600" />
+            <h1 className="text-xl font-bold text-purple-900 tracking-tight">
+              Mindful<span className="text-purple-600">Connect</span>
+            </h1>
+          </div>
           {teacherName && (
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">

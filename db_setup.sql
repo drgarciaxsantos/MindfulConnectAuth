@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS public.appointments (
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 7. Add Missing Columns (Transfers, Rescheduling)
+-- 7. Add Missing Columns & FIX CONSTRAINTS
 DO $$
 BEGIN
     ALTER TABLE public.appointments ADD COLUMN IF NOT EXISTS transfer_request_to_id uuid;
@@ -101,11 +101,23 @@ BEGIN
     ALTER TABLE public.appointments ADD COLUMN IF NOT EXISTS reschedule_proposed_date text;
     ALTER TABLE public.appointments ADD COLUMN IF NOT EXISTS reschedule_proposed_time text;
     
+    -- Fix Foreign Key
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'appointments_status_fkey') THEN
         ALTER TABLE public.appointments 
         ADD CONSTRAINT appointments_status_fkey 
         FOREIGN KEY (status) REFERENCES public.appointment_statuses(status);
     END IF;
+
+    -- FIX: DROP AND RECREATE CHECK CONSTRAINT FOR 'DEPARTED'
+    -- If the table was created with a CHECK constraint (common in Supabase UI), we must update it.
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'appointments_status_check') THEN
+        ALTER TABLE public.appointments DROP CONSTRAINT appointments_status_check;
+        
+        ALTER TABLE public.appointments
+        ADD CONSTRAINT appointments_status_check 
+        CHECK (status IN ('PENDING', 'ACCEPTED', 'DENIED', 'COMPLETED', 'VERIFYING', 'CONFIRMED', 'DEPARTED', 'CANCELLED'));
+    END IF;
+
 EXCEPTION
     WHEN others THEN NULL;
 END $$;
