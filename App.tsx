@@ -367,9 +367,6 @@ export const App: React.FC = () => {
                 onClick={() => startNfcScan('TEACHER')}
                 className="bg-purple-600 text-white px-8 py-4 rounded-xl font-bold shadow-lg shadow-purple-200 hover:bg-purple-700 w-full flex justify-center items-center gap-2 transition-all"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.2-2.858.59-4.18" />
-                </svg>
                 Scan with Phone NFC
               </button>
             </div>
@@ -379,11 +376,12 @@ export const App: React.FC = () => {
       case AppStep.SCAN_STUDENT:
         return (
           <div className="flex flex-col items-center space-y-8">
-            <div className="w-40 h-40 rounded-2xl bg-white shadow-xl flex items-center justify-center border border-purple-100">
-               <svg className="w-16 h-16 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0c0 .854.409 1.638 1 2.143" />
-               </svg>
-            </div>
+            <img 
+              src="https://picsum.photos/seed/student_scan/400/400" 
+              alt="Scan Student ID" 
+              className="w-48 h-48 rounded-2xl shadow-xl border-4 border-white ring-1 ring-purple-100 object-cover"
+              referrerPolicy="no-referrer"
+            />
             <div className="text-center">
               <p className="text-xl font-semibold text-slate-800">Ready to Verify</p>
               <p className="text-slate-500 mt-1">Tap Student ID Card</p>
