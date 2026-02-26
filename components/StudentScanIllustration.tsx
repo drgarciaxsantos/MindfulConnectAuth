@@ -11,25 +11,18 @@ export const StudentScanIllustration: React.FC<{ className?: string }> = ({ clas
       {/* Background Circle */}
       <circle cx="100" cy="100" r="90" className="fill-purple-50" />
       
-      {/* ID Card Shape */}
-      <rect x="50" y="40" width="100" height="140" rx="8" className="fill-white stroke-purple-200" strokeWidth="2" />
-      
-      {/* Card Header */}
-      <path d="M51 48C51 43.5817 54.5817 40 59 40H141C145.418 40 149 43.5817 149 48V70H51V48Z" className="fill-purple-500" />
-      
-      {/* Photo Placeholder */}
-      <circle cx="100" cy="100" r="25" className="fill-purple-100" />
-      <path d="M100 85C95.5817 85 92 88.5817 92 93C92 97.4183 95.5817 101 100 101C104.418 101 108 97.4183 108 93C108 88.5817 104.418 85 100 85Z" className="fill-purple-300" />
-      <path d="M118 118C118 108.059 109.941 100 100 100C90.0589 100 82 108.059 82 118H118Z" className="fill-purple-300" />
-      
-      {/* Text Lines */}
-      <rect x="70" y="135" width="60" height="6" rx="3" className="fill-purple-200" />
-      <rect x="80" y="148" width="40" height="6" rx="3" className="fill-purple-100" />
-      
-      {/* NFC Waves */}
-      <path d="M130 160C135.523 160 140 155.523 140 150" className="stroke-purple-400" strokeWidth="3" strokeLinecap="round" />
-      <path d="M130 168C140.493 168 149 159.493 149 149" className="stroke-purple-400" strokeWidth="3" strokeLinecap="round" />
-      <path d="M130 176C145.464 176 158 163.464 158 148" className="stroke-purple-400" strokeWidth="3" strokeLinecap="round" />
+      {/* Student Avatar */}
+      <g transform="translate(-10, 10)">
+        {/* Head */}
+        <circle cx="100" cy="75" r="35" className="fill-purple-200" />
+        
+        {/* Body/Shoulders */}
+        <path d="M100 115C70 115 45 135 40 165H160C155 135 130 115 100 115Z" className="fill-purple-300" />
+      </g>
+
+      {/* NFC Waves - indicating scan action */}
+      <path d="M150 70C160 80 165 95 165 110C165 125 160 140 150 150" className="stroke-purple-400" strokeWidth="4" strokeLinecap="round" />
+      <path d="M165 60C180 75 185 92 185 110C185 128 180 145 165 160" className="stroke-purple-300" strokeWidth="4" strokeLinecap="round" opacity="0.6" />
     </svg>
   );
 };
