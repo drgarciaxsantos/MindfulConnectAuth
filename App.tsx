@@ -4,6 +4,7 @@ import { checkNfcSupport, scanNfcTag } from './nfcService';
 import { Layout } from './components/Layout';
 import { StatusBadge } from './components/StatusBadge';
 import { GatekeeperLogo } from './components/GatekeeperLogo';
+import { StudentScanIllustration } from './components/StudentScanIllustration';
 import { AppStep, Appointment, Student, Teacher } from './types';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
@@ -376,12 +377,7 @@ export const App: React.FC = () => {
       case AppStep.SCAN_STUDENT:
         return (
           <div className="flex flex-col items-center space-y-8">
-            <img 
-              src="https://picsum.photos/seed/student_scan/400/400" 
-              alt="Scan Student ID" 
-              className="w-48 h-48 rounded-2xl shadow-xl border-4 border-white ring-1 ring-purple-100 object-cover"
-              referrerPolicy="no-referrer"
-            />
+            <StudentScanIllustration className="w-56 h-56 drop-shadow-xl" />
             <div className="text-center">
               <p className="text-xl font-semibold text-slate-800">Ready to Verify</p>
               <p className="text-slate-500 mt-1">Tap Student ID Card</p>
