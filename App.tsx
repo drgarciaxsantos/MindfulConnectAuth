@@ -297,7 +297,7 @@ export const App: React.FC = () => {
           message = "Your verification was successful. You may enter the campus.";
           break;
         case 'LATE':
-          message = "Your verification was marked as LATE. Please proceed to your destination immediately.";
+          message = "You may not leave the classroom or enter the campus";
           break;
         case 'DENIED':
           message = "Your verification was denied. Please contact the office or return to class.";
@@ -651,7 +651,7 @@ export const App: React.FC = () => {
                    </div>
 
                    <p className="text-red-600/80 text-xs mt-3 italic text-center">
-                     Access denied. Valid window has passed.
+                     You may not leave the classroom or enter the campus.
                    </p>
                 </div>
              </div>
