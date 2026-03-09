@@ -185,7 +185,7 @@ export const App: React.FC = () => {
         .from('appointments')
         .select('*')
         .eq('student_id', student.id)
-        .in('status', ['ACCEPTED', 'VERIFYING', 'CONFIRMED']) 
+        .in('status', ['CONFIRMED', 'VERIFYING']) 
         .order('date', { ascending: false }) 
         .limit(1)
         .maybeSingle();
@@ -282,25 +282,6 @@ export const App: React.FC = () => {
     }
   };
 
-  const notifyStudent = async (studentId: string, status: string) => {
-    try {
-      const isApproved = status === 'ACCEPTED' || status === 'CONFIRMED';
-      const message = isApproved 
-        ? "Your appointment verification at the gate was APPROVED. You may proceed to the Guidance Office."
-        : "Your appointment verification at the gate was DENIED. Please return to your class.";
-
-      await supabase
-        .from('notifications')
-        .insert({
-          user_id: studentId,
-          message: message,
-          is_read: false
-        });
-    } catch (err) {
-      console.error("Failed to notify student:", err);
-    }
-  };
-
   const subscribeToAppointment = (apptId: string) => {
     unsubscribeRealtime();
 
@@ -316,16 +297,10 @@ export const App: React.FC = () => {
         (payload) => {
           const newStatus = payload.new.status;
           
-          if (newStatus === 'ACCEPTED' || newStatus === 'CONFIRMED') {
+          if (newStatus === 'ACCEPTED' || newStatus === 'CONFIRMED' || newStatus === 'DENIED' || newStatus === 'CANCELLED') {
             setActiveAppointment(payload.new as Appointment);
             setStep(AppStep.RESULT);
             unsubscribeRealtime();
-            if (scannedStudent) notifyStudent(scannedStudent.id, newStatus);
-          } else if (newStatus === 'DENIED') {
-            setActiveAppointment(payload.new as Appointment);
-            setStep(AppStep.RESULT);
-            unsubscribeRealtime();
-            if (scannedStudent) notifyStudent(scannedStudent.id, newStatus);
           }
         }
       )
@@ -485,7 +460,7 @@ export const App: React.FC = () => {
 
       case AppStep.RESULT:
         const status = activeAppointment?.status;
-        const isApproved = status === 'ACCEPTED' || status === 'CONFIRMED';
+        const isApproved = status === 'CONFIRMED' || status === 'ACCEPTED';
         const isGuard = teacher?.name?.toLowerCase().includes('guard');
         
         return (

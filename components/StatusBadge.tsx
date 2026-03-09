@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
 interface StatusBadgeProps {
-  status: 'ACCEPTED' | 'DENIED' | 'PENDING' | 'CONFIRMED' | 'VERIFYING';
+  status: 'ACCEPTED' | 'DENIED' | 'PENDING' | 'CONFIRMED' | 'VERIFYING' | 'CANCELLED';
 }
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
@@ -9,6 +9,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
     ACCEPTED: 'bg-green-100 text-green-700 border-green-200',
     CONFIRMED: 'bg-green-100 text-green-700 border-green-200', // Same as ACCEPTED
     DENIED: 'bg-red-100 text-red-700 border-red-200',
+    CANCELLED: 'bg-red-100 text-red-700 border-red-200', // Same as DENIED
     PENDING: 'bg-yellow-100 text-yellow-700 border-yellow-200',
     VERIFYING: 'bg-orange-100 text-orange-700 border-orange-200',
   };
