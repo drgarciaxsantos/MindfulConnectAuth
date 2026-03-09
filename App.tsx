@@ -229,6 +229,13 @@ export const App: React.FC = () => {
            setActiveAppointment(appt);
            setMinutesUntilAppt(Math.abs(diffMinutes)); // Store how late they are
            setStep(AppStep.EXPIRED);
+           
+           // Notify student they are late
+           notifyStudent(student.id, 'LATE');
+           
+           // Optionally update status in DB to LATE
+           await supabase.from('appointments').update({ status: 'LATE' }).eq('id', appt.id);
+           
            return;
       }
 
@@ -282,6 +289,33 @@ export const App: React.FC = () => {
     }
   };
 
+  const notifyStudent = async (studentId: string, type: 'ENTER' | 'LATE' | 'DENIED') => {
+    try {
+      let message = "";
+      switch (type) {
+        case 'ENTER':
+          message = "Your verification was successful. You may enter the campus.";
+          break;
+        case 'LATE':
+          message = "Your verification was marked as LATE. Please proceed to your destination immediately.";
+          break;
+        case 'DENIED':
+          message = "Your verification was denied. Please contact the office or return to class.";
+          break;
+      }
+
+      await supabase
+        .from('notifications')
+        .insert({
+          user_id: studentId,
+          message: message,
+          is_read: false
+        });
+    } catch (err) {
+      console.error("Failed to notify student:", err);
+    }
+  };
+
   const subscribeToAppointment = (apptId: string) => {
     unsubscribeRealtime();
 
@@ -301,6 +335,15 @@ export const App: React.FC = () => {
             setActiveAppointment(payload.new as Appointment);
             setStep(AppStep.RESULT);
             unsubscribeRealtime();
+
+            // Notify student of result
+            if (scannedStudent) {
+              if (newStatus === 'ACCEPTED' || newStatus === 'CONFIRMED') {
+                notifyStudent(scannedStudent.id, 'ENTER');
+              } else {
+                notifyStudent(scannedStudent.id, 'DENIED');
+              }
+            }
           }
         }
       )

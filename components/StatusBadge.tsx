@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
 interface StatusBadgeProps {
-  status: 'ACCEPTED' | 'DENIED' | 'PENDING' | 'CONFIRMED' | 'VERIFYING' | 'CANCELLED';
+  status: 'ACCEPTED' | 'DENIED' | 'PENDING' | 'CONFIRMED' | 'VERIFYING' | 'CANCELLED' | 'LATE';
 }
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
@@ -12,6 +12,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
     CANCELLED: 'bg-red-100 text-red-700 border-red-200', // Same as DENIED
     PENDING: 'bg-yellow-100 text-yellow-700 border-yellow-200',
     VERIFYING: 'bg-orange-100 text-orange-700 border-orange-200',
+    LATE: 'bg-red-100 text-red-700 border-red-200', // Late is also a warning state
   };
 
   // Fallback for unknown statuses
