@@ -223,9 +223,9 @@ export const App: React.FC = () => {
            return;
       }
       
-      // If appointment is more than 30 minutes in the past, consider it expired/missed.
-      // e.g., if diffMinutes is -31, it is 31 minutes ago.
-      if (diffMinutes < -30) {
+      // If appointment is more than 15 minutes in the past, consider it expired/missed.
+      // e.g., if diffMinutes is -16, it is 16 minutes ago.
+      if (diffMinutes < -15) {
            setActiveAppointment(appt);
            setMinutesUntilAppt(Math.abs(diffMinutes)); // Store how late they are
            setStep(AppStep.EXPIRED);
